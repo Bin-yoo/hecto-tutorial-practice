@@ -13,18 +13,12 @@ pub struct View {
 }
 
 impl View {
-    // 渲染
-    pub fn render(&self) -> Result<(), Error> {
+    // 渲染欢迎语
+    pub fn render_welcome_screen() -> Result<(), Error> {
         let Size { height, .. } = Terminal::size()?;
         for current_row in 0..height {
             // 清除当前行
             Terminal::clear_line()?;
-            // 判断输出buffer内容
-            if let Some(line) = self.buffer.lines.get(current_row) {
-                Terminal::print(&line)?;
-                Terminal::print("\r\n")?;
-                continue;
-            }
             // 我们不介意欢迎消息是否被精确地放在中间,允许它稍微偏上或偏下一点。
             #[allow(clippy::integer_division)]
             if current_row == height / 3 {
@@ -37,6 +31,33 @@ impl View {
             if current_row.saturating_add(1) < height {
                 Terminal::print("\r\n")?;
             }
+        }
+        Ok(())
+    }
+
+    // 渲染缓冲区内容
+    pub fn render_buffer(&self) -> Result<(), Error> {
+        let Size { height, .. } = Terminal::size()?;
+
+        for current_row in 0..height {
+            Terminal::clear_line()?;
+            // 判断输出
+            if let Some(line) = self.buffer.lines.get(current_row) {
+                Terminal::print(line)?;
+                Terminal::print("\r\n")?;
+            } else {
+                Self::draw_empty_row()?;
+            }
+        }
+        Ok(())
+    }
+
+    // 渲染
+    pub fn render(&self) -> Result<(), Error> {
+        if self.buffer.is_empty() {
+            Self::render_welcome_screen()?;
+        } else {
+            self.render_buffer()?;
         }
         Ok(())
     }
@@ -63,5 +84,12 @@ impl View {
     fn draw_empty_row() -> Result<(), Error> {
         Terminal::print("~")?;
         Ok(())
+    }
+
+    // 读取文件
+    pub fn load(&mut self, file_name: &str) {
+        if let Ok(buffer) = Buffer::load(file_name) {
+            self.buffer = buffer
+        }
     }
 }
