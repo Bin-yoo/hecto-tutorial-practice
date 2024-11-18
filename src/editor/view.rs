@@ -1,20 +1,30 @@
-use std::io::Error;
+use std::{io::Error, str};
 use super::terminal::{Size, Terminal};
+
+mod buffer;
+use buffer::Buffer;
 
 const NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-pub struct View {}
+#[derive(Default)]
+pub struct View {
+    buffer: Buffer
+}
 
 impl View {
     // 渲染
-    pub fn render() -> Result<(), Error> {
+    pub fn render(&self) -> Result<(), Error> {
         let Size { height, .. } = Terminal::size()?;
-        Terminal::clear_line()?;
-        Terminal::print("Hello, World!\r\n")?;
-        for current_row in 1..height {
+        for current_row in 0..height {
             // 清除当前行
             Terminal::clear_line()?;
+            // 判断输出buffer内容
+            if let Some(line) = self.buffer.lines.get(current_row) {
+                Terminal::print(&line)?;
+                Terminal::print("\r\n")?;
+                continue;
+            }
             // 我们不介意欢迎消息是否被精确地放在中间,允许它稍微偏上或偏下一点。
             #[allow(clippy::integer_division)]
             if current_row == height / 3 {
