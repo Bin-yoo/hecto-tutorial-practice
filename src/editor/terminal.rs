@@ -91,7 +91,7 @@ impl Terminal {
         // clippy::as_conversions: See doc above
         #[allow(clippy::as_conversions)]
         let width = width_u16 as usize;
-        Ok(Size { height , width })
+        Ok(Size { height, width })
     }
     
     // 执行刷新缓冲区

@@ -2,7 +2,6 @@ use std::cmp::min;
 use std::env;
 use std::io::Error;
 use crossterm::event::{read, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use crossterm::event::KeyCode::Char;
 use crossterm::event::Event::Key;
 use terminal::{Position, Size, Terminal};
 use view::View;
@@ -34,7 +33,7 @@ impl Editor {
 
     // 处理命令行启动参数
     fn handle_args(&mut self) {
-        let args:Vec<String> = env::args().collect();
+        let args: Vec<String> = env::args().collect();
         if let Some(file_name) = args.get(1) {
             self.view.load(file_name);
         }
@@ -54,16 +53,16 @@ impl Editor {
     }
 
     // 判断按键事件
-    fn evaluate_event(&mut self, event: &Event) -> Result<(), Error>{
+    fn evaluate_event(&mut self, event: &Event) -> Result<(), Error> {
         if let Key(KeyEvent {
             code, modifiers, kind: KeyEventKind::Press, ..
         }) = event
         {
             match code {
                 // 如果是 ctrl+c 就退出程序
-                Char('q') if *modifiers == KeyModifiers::CONTROL => {
+                KeyCode::Char('q') if *modifiers == KeyModifiers::CONTROL => {
                     self.should_quit = true;
-                },
+                }
                 KeyCode::Up
                 | KeyCode::Down
                 | KeyCode::Left
@@ -81,7 +80,7 @@ impl Editor {
     }
 
     // 移动光标
-    fn move_point(&mut self, key_code: KeyCode) -> Result<(), Error>{
+    fn move_point(&mut self, key_code: KeyCode) -> Result<(), Error> {
         let Location { mut x, mut y } = self.location;
         let Size { height, width } = Terminal::size()?;
         // 计算x,y坐标
@@ -106,6 +105,8 @@ impl Editor {
     fn refresh_screen(&self) -> Result<(), Error> {
         // 在刷新屏幕之前隐藏光标。
         Terminal::hide_caret()?;
+        // 移动光标到初始位置
+        Terminal::move_caret_to(Position::default())?;
         // 判断是否退出程序
         if self.should_quit {
             Terminal::clear_screen()?;
