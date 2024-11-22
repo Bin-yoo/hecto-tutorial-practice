@@ -86,7 +86,7 @@ impl Editor {
                     #[cfg(debug_assertions)]
                     {
                         // panic!("无法处理命名: {err}");
-                        eprintln!("无法处理命令: {err}");
+                        // eprintln!("无法处理命令: {err}");
                     }
                 }
             }
@@ -94,7 +94,7 @@ impl Editor {
             #[cfg(debug_assertions)]
             {
                 // panic!("收到并丢弃了不支持的事件或非按键事件。");
-                eprintln!("收到并丢弃了不支持的事件或非按键事件: {:?}", event);
+                // eprintln!("收到并丢弃了不支持的事件或非按键事件: {:?}", event);
             }
         }
     }

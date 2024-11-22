@@ -1,6 +1,7 @@
-use std::str;
+use std::{cmp::min, str};
 use super::{editorcommand::{Direction, EditorCommand}, terminal::{Position, Size, Terminal}};
 use buffer::Buffer;
+use line::Line;
 use location::Location;
 
 mod buffer;
@@ -114,33 +115,44 @@ impl View {
     /// - `direction`: 移动方向。
     fn move_text_localtion(&mut self, direction: &Direction) {
         let Location { mut x, mut y } = self.location;
-        let Size { height, width } = self.size;
+        let Size { height, .. } = self.size;
+        // 这个 match 语句会移动位置，但不会检查所有边界。
+        // 最终的边界检查在 match 语句之后进行。
         match direction {
-            Direction::Up => {
-                y = y.saturating_sub(1);
-            }
-            Direction::Down => {
-                y = y.saturating_add(1);
-            }
+            Direction::Up => y = y.saturating_sub(1),
+            Direction::Down => y = y.saturating_add(1),
+            // 光标位置左移,x大于0就左移,否则换到上一行行尾
             Direction::Left => {
-                x = x.saturating_sub(1);
+                if x > 0 {
+                    x = x.saturating_sub(1);
+                } else if y > 0 {
+                    y = y.saturating_sub(1);
+                    x = self.buffer.lines.get(y).map_or(0, Line::len);
+                }
             }
+            // 光标位置右移,x小于宽度就右移,否则大于行内容的长度就换到下一行行首
             Direction::Right => {
-                x = x.saturating_add(1);
+                let width = self.buffer.lines.get(y).map_or(0, Line::len);
+                if x < width {
+                    x = x.saturating_add(1);
+                } else {
+                    y = y.saturating_add(1);
+                    x = 0;
+                }
             }
-            Direction::PageUp => {
-                y = 0;
-            }
-            Direction::PageDown => {
-                y = height.saturating_sub(1);
-            }
-            Direction::Home => {
-                x = 0;
-            }
-            Direction::End => {
-                x = width.saturating_sub(1);
-            }
+            Direction::PageUp => y = y.saturating_sub(height).saturating_add(1),
+            Direction::PageDown => y = y.saturating_add(height).saturating_sub(1),
+            // 到行首
+            Direction::Home => x = 0,
+            // 到行尾
+            Direction::End => x = self.buffer.lines.get(y).map_or(0, Line::len)
         }
+
+        // 判断边界
+        // 调整x到有效位置
+        x = self.buffer.lines.get(y).map_or(0, |line| min(line.len(), x));
+        // 调整y到有效位置
+        y = min(y, self.buffer.lines.len());
 
         self.location = Location { x, y };
         self.scroll_location_into_view();
