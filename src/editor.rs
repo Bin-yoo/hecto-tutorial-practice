@@ -25,9 +25,13 @@ pub struct Editor {
 impl Editor {
     pub fn run(&mut self) {
         Terminal::initialize().unwrap();
+        // 处理命令行启动参数
         self.handle_args();
+        // 启动 REPL 交互式循环
         let result = self.repl();
+        // 终止终端
         Terminal::terminate().unwrap();
+        // 处理 REPL 执行结果
         result.unwrap();
     }
 
@@ -39,42 +43,19 @@ impl Editor {
         }
     }
 
-    // 交互
+    /// 监听和处理用户输入的事件。
     fn repl(&mut self) -> Result<(), Error> {
         loop {
+            // 刷新屏幕
             self.refresh_screen()?;
+            // 如果应该退出，跳出循环
             if self.should_quit {
                 break;
             }
+            // 读取用户输入事件
             let event = read()?;
-            self.evaluate_event(&event)?;
-        }
-        Ok(())
-    }
-
-    // 判断按键事件
-    fn evaluate_event(&mut self, event: &Event) -> Result<(), Error> {
-        if let Key(KeyEvent {
-            code, modifiers, kind: KeyEventKind::Press, ..
-        }) = event
-        {
-            match code {
-                // 如果是 ctrl+c 就退出程序
-                KeyCode::Char('q') if *modifiers == KeyModifiers::CONTROL => {
-                    self.should_quit = true;
-                }
-                KeyCode::Up
-                | KeyCode::Down
-                | KeyCode::Left
-                | KeyCode::Right
-                | KeyCode::PageDown
-                | KeyCode::PageUp
-                | KeyCode::End
-                | KeyCode::Home => {
-                    self.move_point(*code)?;
-                }
-                _ => (),
-            }
+            // 处理该事件
+            self.evaluate_event(event)?;
         }
         Ok(())
     }
@@ -101,8 +82,52 @@ impl Editor {
         Ok(())
     }
 
+    // 判断按键事件
+    fn evaluate_event(&mut self, event: Event) -> Result<(), Error> {
+        match event {
+            Key(KeyEvent {
+                code, modifiers, kind: KeyEventKind::Press, ..
+            }) => match (code, modifiers) {
+                // 如果是 ctrl+q 就退出程序
+                (KeyCode::Char('q'), KeyModifiers::CONTROL) => {
+                    self.should_quit = true;
+                },
+                (
+                    KeyCode::Up
+                    | KeyCode::Down
+                    | KeyCode::Left
+                    | KeyCode::Right
+                    | KeyCode::PageDown
+                    | KeyCode::PageUp
+                    | KeyCode::End
+                    | KeyCode::Home,
+                    _
+                ) => {
+                    self.move_point(code)?;
+                }
+                _ => {},
+            },
+            Event::Resize(witdth_u16, height_u16) => {
+                // 当终端大小发生变化时，调整视图大小
+                // clippy::as_conversions: Will run into problems for rare edge case systems where usize < u16
+                #[allow(clippy::as_conversions)]
+                let height = height_u16 as usize;
+                #[allow(clippy::as_conversions)]
+                let width = witdth_u16 as usize;
+                self.view.resize(
+                    Size {
+                        height,
+                        width
+                    }
+                );
+            },
+            _ => {}
+        }
+        Ok(())
+    }
+
     // 刷新屏幕
-    fn refresh_screen(&self) -> Result<(), Error> {
+    fn refresh_screen(&mut self) -> Result<(), Error> {
         // 在刷新屏幕之前隐藏光标。
         Terminal::hide_caret()?;
         // 移动光标到初始位置
