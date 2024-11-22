@@ -1,8 +1,11 @@
 use std::str;
-use super::terminal::{Size, Terminal};
+use super::{editorcommand::{Direction, EditorCommand}, terminal::{Position, Size, Terminal}};
+use buffer::Buffer;
+use location::Location;
 
 mod buffer;
-use buffer::Buffer;
+mod location;
+mod line;
 
 const NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -14,6 +17,8 @@ pub struct View {
     needs_redraw: bool,
     // 当前终端窗口大小
     size: Size,
+    location: Location,
+    scroll_offset: Location,
 }
 
 impl View {
@@ -23,6 +28,7 @@ impl View {
     /// - `to`: 新的终端窗口大小。
     pub fn resize(&mut self, to: Size) {
         self.size = to;
+        self.scroll_location_into_view();
         // 设置成需要重新渲染
         self.needs_redraw = true;
     }
@@ -64,16 +70,14 @@ impl View {
         // 计算垂直居中的位置，用于显示欢迎信息
         // 它可以稍微偏上一点或偏下一点，因为我们不在乎欢迎信息是否恰好位于正中间。
         let vertical_center = height / 3;
+        // 获取滚动偏移量
+        let top = self.scroll_offset.y;
         for current_row in 0..height {
             // 判断输出
-            if let Some(line) = self.buffer.lines.get(current_row) {
-                // 如果当前行的文本内容超过终端宽度，进行截断
-                let truncate_line = if line.len() >= width {
-                    &line[0..width]
-                } else {
-                    line
-                };
-                Self::render_line(current_row, truncate_line);
+            if let Some(line) = self.buffer.lines.get(current_row.saturating_add(top)) {
+                let left = self.scroll_offset.x;
+                let right = self.scroll_offset.x.saturating_add(width);
+                Self::render_line(current_row, &line.get(left..right));
             } else if current_row == vertical_center && self.buffer.is_empty() {
                 // 如果当前行是垂直居中的位置且缓冲区为空，显示欢迎信息
                 Self::render_line(current_row, &Self::build_welcome_message(width));
@@ -85,6 +89,101 @@ impl View {
 
         // 渲染完毕，标记不再需要重新渲染
         self.needs_redraw = false;
+    }
+
+    /// 处理编辑器命令。
+    ///
+    /// # 参数
+    /// - `command`: 编辑器命令。
+    pub fn handle_command(&mut self, comand: EditorCommand) {
+        match comand {
+            EditorCommand::Resize(size) => self.resize(size),
+            EditorCommand::Move(direction) => self.move_text_localtion(&direction),
+            EditorCommand::Quit => {},
+        }
+    }
+
+    /// 获取当前光标的物理位置。
+    pub fn get_position(&self) -> Position {
+        self.location.subtract(&self.scroll_offset).into()
+    }
+
+    /// 移动文本光标位置。
+    ///
+    /// # 参数
+    /// - `direction`: 移动方向。
+    fn move_text_localtion(&mut self, direction: &Direction) {
+        let Location { mut x, mut y } = self.location;
+        let Size { height, width } = self.size;
+        match direction {
+            Direction::Up => {
+                y = y.saturating_sub(1);
+            }
+            Direction::Down => {
+                y = y.saturating_add(1);
+            }
+            Direction::Left => {
+                x = x.saturating_sub(1);
+            }
+            Direction::Right => {
+                x = x.saturating_add(1);
+            }
+            Direction::PageUp => {
+                y = 0;
+            }
+            Direction::PageDown => {
+                y = height.saturating_sub(1);
+            }
+            Direction::Home => {
+                x = 0;
+            }
+            Direction::End => {
+                x = width.saturating_sub(1);
+            }
+        }
+
+        self.location = Location { x, y };
+        self.scroll_location_into_view();
+    }
+
+    fn scroll_location_into_view(&mut self) {
+        let Location { x, y } = self.location;
+        let Size { width, height } = self.size;
+        let mut offset_changed = false;
+
+        // 垂直滚动
+        if y < self.scroll_offset.y {
+            // 如果光标的纵坐标 y 小于当前滚动偏移量 self.scroll_offset.y，
+            // 这意味着光标已经在可视区域的顶部之上。
+            // 因此，将 self.scroll_offset.y 设置为 y，使光标回到可视区域的顶部。
+            self.scroll_offset.y = y;
+            offset_changed = true;
+        } else if y >= self.scroll_offset.y.saturating_add(height) {
+            // 如果光标的纵坐标 y 大于等于当前滚动偏移量加上终端高度 self.scroll_offset.y.saturating_add(height)，
+            // 这意味着光标已经在可视区域的底部之下。
+            // 因此，将 self.scroll_offset.y 设置为 y.saturating_sub(height).saturating_add(1)，
+            // 使光标回到可视区域的底部。
+            self.scroll_offset.y = y.saturating_sub(height).saturating_add(1);
+            offset_changed = true;
+        }
+
+        // 水平滚动
+        if x < self.scroll_offset.x {
+            // 如果光标的横坐标 x 小于当前滚动偏移量 self.scroll_offset.x，
+            // 这意味着光标已经在可视区域的左侧之上。
+            // 因此，将 self.scroll_offset.x 设置为 x，使光标回到可视区域的左侧。
+            self.scroll_offset.x = x;
+            offset_changed = true;
+        } else if x >= self.scroll_offset.x.saturating_add(width) {
+            // 如果光标的横坐标 x 大于等于当前滚动偏移量加上终端宽度 self.scroll_offset.x.saturating_add(width)，
+            // 这意味着光标已经在可视区域的右侧之外。
+            // 因此，将 self.scroll_offset.x 设置为 x.saturating_sub(width).saturating_add(1)，
+            // 使光标回到可视区域的右侧。
+            self.scroll_offset.x = x.saturating_sub(width).saturating_add(1);
+            offset_changed = true;
+        }
+
+        self.needs_redraw = offset_changed
     }
 
     /// 构建欢迎信息字符串，欢迎信息内容会居中显示在终端宽度范围内。
@@ -135,6 +234,8 @@ impl Default for View {
             needs_redraw: true,
             // 尝试获取终端的当前大小，如果失败则使用默认值
             size: Terminal::size().unwrap_or_default(),
+            location: Location::default(),
+            scroll_offset: Location::default()
         }
     }
 }

@@ -1,24 +1,17 @@
-use std::cmp::min;
 use std::env;
 use std::io::Error;
 use std::panic::{set_hook, take_hook};
-use crossterm::event::{read, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use crossterm::event::Event::Key;
-use terminal::{Position, Size, Terminal};
+use crossterm::event::{read, Event, KeyEvent, KeyEventKind};
+use editorcommand::EditorCommand;
+use terminal::Terminal;
 use view::View;
 
 mod terminal;
 mod view;
-
-#[derive(Copy, Clone, Default)]
-struct Location {
-    x: usize,
-    y: usize,
-}
+mod editorcommand;
 
 pub struct Editor {
     should_quit: bool,
-    location: Location,
     view: View
 }
 
@@ -44,7 +37,6 @@ impl Editor {
 
         Ok(Self {
             should_quit: false,
-            location: Location::default(),
             view
         })
     }
@@ -71,67 +63,39 @@ impl Editor {
         }
     }
 
-    // 移动光标
-    fn move_point(&mut self, key_code: KeyCode) {
-        let Location { mut x, mut y } = self.location;
-        let Size { height, width } = Terminal::size().unwrap_or_default();
-        // 计算x,y坐标
-        match key_code {
-            KeyCode::Up => y = y.saturating_sub(1),
-            KeyCode::Down => y = min(height.saturating_sub(1), y.saturating_add(1)),
-            KeyCode::Left => x = x.saturating_sub(1),
-            KeyCode::Right => x = min(width.saturating_sub(1), x.saturating_add(1)),
-            KeyCode::PageDown => y = height.saturating_sub(1),
-            KeyCode::PageUp => y = 0,
-            KeyCode::End => x = width.saturating_sub(1),
-            KeyCode::Home => x = 0,
-            _ => ()
-        }
-
-        // 将移动后的坐标保存
-        self.location = Location { x, y };
-    }
-
     // 判断按键事件
     fn evaluate_event(&mut self, event: Event) {
-        match event {
-            Key(KeyEvent {
-                code, modifiers, kind: KeyEventKind::Press, ..
-            }) => match (code, modifiers) {
-                // 如果是 ctrl+q 就退出程序
-                (KeyCode::Char('q'), KeyModifiers::CONTROL) => {
-                    self.should_quit = true;
-                },
-                (
-                    KeyCode::Up
-                    | KeyCode::Down
-                    | KeyCode::Left
-                    | KeyCode::Right
-                    | KeyCode::PageDown
-                    | KeyCode::PageUp
-                    | KeyCode::End
-                    | KeyCode::Home,
-                    _
-                ) => {
-                    self.move_point(code);
-                }
-                _ => {},
-            },
-            Event::Resize(witdth_u16, height_u16) => {
-                // 当终端大小发生变化时，调整视图大小
-                // clippy::as_conversions: Will run into problems for rare edge case systems where usize < u16
-                #[allow(clippy::as_conversions)]
-                let height = height_u16 as usize;
-                #[allow(clippy::as_conversions)]
-                let width = witdth_u16 as usize;
-                self.view.resize(
-                    Size {
-                        height,
-                        width
+        // 判断是否应该处理该事件
+        let should_process = match &event {
+            Event::Key(KeyEvent { kind, .. }) => kind == &KeyEventKind::Press,
+            Event::Resize(_, _) => true,
+            _ => false,
+        };
+
+        if should_process {
+            match EditorCommand::try_from(event) {
+                Ok(command) => {
+                    // 判断退出
+                    if matches!(command, EditorCommand::Quit) {
+                        self.should_quit = true
+                    } else {
+                        self.view.handle_command(command);
                     }
-                );
-            },
-            _ => {}
+                },
+                Err(err) => {
+                    #[cfg(debug_assertions)]
+                    {
+                        // panic!("无法处理命名: {err}");
+                        eprintln!("无法处理命令: {err}");
+                    }
+                }
+            }
+        } else {
+            #[cfg(debug_assertions)]
+            {
+                // panic!("收到并丢弃了不支持的事件或非按键事件。");
+                eprintln!("收到并丢弃了不支持的事件或非按键事件: {:?}", event);
+            }
         }
     }
 
@@ -141,10 +105,7 @@ impl Editor {
         let _ = Terminal::hide_caret();
         self.view.render();
         // 移动光标
-        let _ = Terminal::move_caret_to(Position {
-            col: self.location.x,
-            row: self.location.y
-        });
+        let _ = Terminal::move_caret_to(self.view.get_position());
         // 完成刷新后显示光标。
         let _ = Terminal::show_caret();
         // 输出缓冲区内容
