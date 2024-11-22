@@ -1,6 +1,7 @@
 use std::cmp::min;
 use std::env;
 use std::io::Error;
+use std::panic::{set_hook, take_hook};
 use crossterm::event::{read, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::event::Event::Key;
 use terminal::{Position, Size, Terminal};
@@ -15,7 +16,6 @@ struct Location {
     y: usize,
 }
 
-#[derive(Default)]
 pub struct Editor {
     should_quit: bool,
     location: Location,
@@ -23,47 +23,58 @@ pub struct Editor {
 }
 
 impl Editor {
-    pub fn run(&mut self) {
-        Terminal::initialize().unwrap();
-        // 处理命令行启动参数
-        self.handle_args();
-        // 启动 REPL 交互式循环
-        let result = self.repl();
-        // 终止终端
-        Terminal::terminate().unwrap();
-        // 处理 REPL 执行结果
-        result.unwrap();
-    }
 
-    // 处理命令行启动参数
-    fn handle_args(&mut self) {
+    /// 创建一个新的 `Editor` 实例。
+    pub fn new() -> Result<Self, Error> {
+        // 捕获并处理程序崩溃，确保终端能够正确恢复
+        let current_hook = take_hook();
+        set_hook(Box::new(move |panic_info| {
+            let _ = Terminal::terminate();
+            current_hook(panic_info);
+        }));
+        // 初始化终端
+        Terminal::initialize()?;
+        // 创建默认的视图组件
+        let mut view = View::default();
+        // 处理命令行参数，尝试加载文件
         let args: Vec<String> = env::args().collect();
         if let Some(file_name) = args.get(1) {
-            self.view.load(file_name);
+            view.load(file_name);
         }
+
+        Ok(Self {
+            should_quit: false,
+            location: Location::default(),
+            view
+        })
     }
 
-    /// 监听和处理用户输入的事件。
-    fn repl(&mut self) -> Result<(), Error> {
+    /// 运行编辑器主循环。
+    pub fn run(&mut self) {
         loop {
             // 刷新屏幕
-            self.refresh_screen()?;
+            self.refresh_screen();
             // 如果应该退出，跳出循环
             if self.should_quit {
                 break;
             }
             // 读取用户输入事件
-            let event = read()?;
-            // 处理该事件
-            self.evaluate_event(event)?;
+            match read() {
+                Ok(event) => self.evaluate_event(event),
+                Err(err) => {
+                    #[cfg(debug_assertions)]
+                    {
+                        panic!("无法读取事件: {err:?}");
+                    }
+                }
+            }
         }
-        Ok(())
     }
 
     // 移动光标
-    fn move_point(&mut self, key_code: KeyCode) -> Result<(), Error> {
+    fn move_point(&mut self, key_code: KeyCode) {
         let Location { mut x, mut y } = self.location;
-        let Size { height, width } = Terminal::size()?;
+        let Size { height, width } = Terminal::size().unwrap_or_default();
         // 计算x,y坐标
         match key_code {
             KeyCode::Up => y = y.saturating_sub(1),
@@ -79,11 +90,10 @@ impl Editor {
 
         // 将移动后的坐标保存
         self.location = Location { x, y };
-        Ok(())
     }
 
     // 判断按键事件
-    fn evaluate_event(&mut self, event: Event) -> Result<(), Error> {
+    fn evaluate_event(&mut self, event: Event) {
         match event {
             Key(KeyEvent {
                 code, modifiers, kind: KeyEventKind::Press, ..
@@ -103,7 +113,7 @@ impl Editor {
                     | KeyCode::Home,
                     _
                 ) => {
-                    self.move_point(code)?;
+                    self.move_point(code);
                 }
                 _ => {},
             },
@@ -123,34 +133,32 @@ impl Editor {
             },
             _ => {}
         }
-        Ok(())
     }
 
     // 刷新屏幕
-    fn refresh_screen(&mut self) -> Result<(), Error> {
+    fn refresh_screen(&mut self) {
         // 在刷新屏幕之前隐藏光标。
-        Terminal::hide_caret()?;
-        // 移动光标到初始位置
-        Terminal::move_caret_to(Position::default())?;
-        // 判断是否退出程序
-        if self.should_quit {
-            Terminal::clear_screen()?;
-            Terminal::print("Goodbye.\r\n")?;
-        } else {
-            self.view.render()?;
-            // 根据x,y值移动光标
-            Terminal::move_caret_to(
-                Position {
-                    col: self.location.x,
-                    row: self.location.y
-                }
-            )?;
-        }
+        let _ = Terminal::hide_caret();
+        self.view.render();
+        // 移动光标
+        let _ = Terminal::move_caret_to(Position {
+            col: self.location.x,
+            row: self.location.y
+        });
         // 完成刷新后显示光标。
-        Terminal::show_caret()?;
+        let _ = Terminal::show_caret();
         // 输出缓冲区内容
-        Terminal::execute()?;
-        Ok(())
+        let _ = Terminal::execute();
     }
 
+}
+
+impl Drop for Editor {
+    /// 在 `Editor` 被销毁时调用，确保终端恢复正常状态。
+    fn drop(&mut self) {
+        let _ = Terminal::terminate();
+        if self.should_quit {
+            let _ = Terminal::print("Goodbye.\r\n");
+        }
+    }
 }

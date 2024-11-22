@@ -1,7 +1,7 @@
 use crossterm::cursor::{Hide, MoveTo, Show};
 use crossterm::{queue, Command};
 use crossterm::style::Print;
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, size, Clear, ClearType};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, size, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
 use std::io::{stdout, Error, Write};
 
 #[derive(Default, Copy, Clone)]
@@ -25,18 +25,38 @@ pub struct Terminal;
 impl Terminal {
     // 结束程序
     pub fn terminate() -> Result<(), Error> {
+        // 退出备用屏幕
+        Self::leave_alternate_screen()?;
+        // 显示光标
+        Self::show_caret()?;
+        // 刷新缓冲区
         Self::execute()?;
+        // 禁用原始模式
         disable_raw_mode()?;
         Ok(())
     }
 
-    // 初始化
+    /// 初始化终端，
     pub fn initialize() -> Result<(), Error> {
+        // 进入原始模式并切换到备用屏幕。
         enable_raw_mode()?;
+        Self::enter_alternate_screen()?;
+        // 清屏
         Self::clear_screen()?;
-        // 将光标移到左上角
-        // Self::move_caret_to(Position { col: 0, row: 0 })?;
+        // 刷新缓冲区
         Self::execute()?;
+        Ok(())
+    }
+
+    /// 进入备用屏幕。
+    pub fn enter_alternate_screen() -> Result<(), Error> {
+        Self::queue_command(EnterAlternateScreen)?;
+        Ok(())
+    }
+
+    /// 退出备用屏幕。
+    pub fn leave_alternate_screen() -> Result<(), Error> {
+        Self::queue_command(LeaveAlternateScreen)?;
         Ok(())
     }
 
@@ -54,7 +74,7 @@ impl Terminal {
 
     /// 移动终端光标至指定位置
     /// # Arguments
-    /// * `Position` - the  `Position`to move the caret to. Will be truncated to `u16::MAX` if bigger.
+    /// * `Position` - 要移动光标到的位置。如果坐标超过 `u16::MAX`，会被截断。
     pub fn move_caret_to(position: Position) -> Result<(), Error> {
         // clippy::as_conversions: See doc above
         #[allow(clippy::as_conversions, clippy::cast_possible_truncation)]
@@ -71,6 +91,16 @@ impl Terminal {
     // 显示终端光标
     pub fn show_caret() -> Result<(), Error> {
         Self::queue_command(Show)?;
+        Ok(())
+    }
+
+    /// 在指定行打印文本。
+    pub fn print_row(row: usize, line_text: &str) -> Result<(), Error> {
+        // 移动光标到指定行的开头
+        Self::move_caret_to(Position { row, col: 0})?;
+        // 清除当前行并打印
+        Self::clear_line()?;
+        Self::print(line_text)?;
         Ok(())
     }
 
