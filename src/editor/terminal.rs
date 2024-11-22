@@ -15,6 +15,15 @@ pub struct Position {
     pub row: usize,
 }
 
+impl Position {
+    pub const fn saturating_sub(self, other: Self) -> Self {
+        Self {
+            row: self.row.saturating_sub(other.row),
+            col: self.col.saturating_sub(other.col),
+        }
+    }
+}
+
 /// 表示终端。
 /// 平台边缘情况处理：当 `usize` < `u16` 时：
 /// 不管终端的实际大小如何，此表示最多只能覆盖 `usize::MAX` 或 `u16::MAX` 行/列，取较小值。

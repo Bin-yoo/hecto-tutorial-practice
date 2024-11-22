@@ -105,7 +105,7 @@ impl Editor {
         let _ = Terminal::hide_caret();
         self.view.render();
         // 移动光标
-        let _ = Terminal::move_caret_to(self.view.get_position());
+        let _ = Terminal::move_caret_to(self.view.caret_position());
         // 完成刷新后显示光标。
         let _ = Terminal::show_caret();
         // 输出缓冲区内容
