@@ -35,20 +35,20 @@ impl Line {
         let fragments = line_str
             .graphemes(true)
             .map(|grapheme| {
-                // 获取当前图形单元的宽度
-                let unicode_width = grapheme.width();
-                // 根据宽度确定渲染宽度
-                let rendered_width = match unicode_width {
-                    // 宽度为 0 或 1 的图形单元被视为半宽字符
-                    0 | 1 => GraphemeWidth::Half,
-                    // 其他宽度的图形单元被视为全宽字符
-                    _ => GraphemeWidth::Full
-                };
-                // 确定替换的图形单元
-                let replacement = match unicode_width {
-                    0 => Some('.'),
-                    _ => None
-                };
+                let (replacement, rendered_width) = Self::replacement_character(grapheme)
+                    .map_or_else(
+                        // 如果转换的函数返回None就进行处理
+                        || {
+                            let unicode_width = grapheme.width();
+                            let rendered_width = match unicode_width {
+                                0 | 1 => GraphemeWidth::Half,
+                                _ => GraphemeWidth::Full,
+                            };
+                            (None, rendered_width)
+                        }, 
+                        // Some(x)有值就直接用
+                        |replacement| (Some(replacement), GraphemeWidth::Half),
+                    );
 
                 TextFragment {
                     grapheme: grapheme.to_string(),
@@ -60,6 +60,32 @@ impl Line {
         Self { fragments }
     }
 
+    // 处理替换字符
+    fn replacement_character(for_str: &str) -> Option<char> {
+        let width = for_str.width();
+        match for_str {
+            // 空格不用替换
+            " " => None,
+            // tab制表符换成空格
+            "\t" => Some(' '),
+            // 可见空白字符（如全角空格）替换为特殊字符 '␣'
+            _ if width > 0 && for_str.trim().is_empty() => Some('␣'),
+            // 不可见字符（如零宽字符）替换为特殊字符 '▯'
+            _ if width == 0 => {
+                let mut chars = for_str.chars();
+                if let Some(ch) = chars.next() {
+                    // 检查第一个字符是否是控制字符(\r, \n, \t 等)，且是单个字符
+                    if ch.is_control() && chars.next().is_none() {
+                        return Some('▯');
+                    }
+                }
+                Some('.')
+            }
+            _ => None
+        }
+    }
+
+    // 获取可展示的内容
     pub fn get_visible_graphemes(&self, range: Range<usize>) -> String {
         if range.start >= range.end {
             return String::new();
