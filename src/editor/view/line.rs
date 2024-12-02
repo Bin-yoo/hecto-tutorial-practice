@@ -162,4 +162,19 @@ impl Line {
         // 经过后保存
         self.fragments = Self::str_to_fragment(&result);
     }
+    
+    pub fn delete(&mut self, grapheme_index: usize) {
+        let mut result = String::new();
+
+        // 遍历当前行内容
+        for (index, fragment) in self.fragments.iter_mut().enumerate() {
+            // 非对应位置的全放进去,及通过忽略对应位置内容来达到删除的效果
+            if index != grapheme_index {
+                result.push_str(&fragment.grapheme);
+            }
+        }
+
+        // 经过后保存
+        self.fragments = Self::str_to_fragment(&result);
+    }
 }

@@ -38,7 +38,9 @@ impl View {
             EditorCommand::Resize(size) => self.resize(size),
             EditorCommand::Move(direction) => self.move_text_location(&direction),
             EditorCommand::Quit => {},
-            EditorCommand::Insert(character) => self.insert_char(character)
+            EditorCommand::Insert(character) => self.insert_char(character),
+            EditorCommand::Delete => self.delete(),
+            EditorCommand::Backspace => self.backspace(),
         }
     }
 
@@ -63,6 +65,18 @@ impl View {
         self.size = to;
         self.scroll_text_location_into_view();
         // 设置成需要重新渲染
+        self.needs_redraw = true;
+    }
+
+    // region: Text editing
+    // 文本编辑代码区域
+
+    fn backspace(&mut self) {
+        self.move_left();
+        self.delete();
+    }
+    fn delete(&mut self) {
+        self.buffer.delete(self.text_location);
         self.needs_redraw = true;
     }
 
@@ -91,6 +105,8 @@ impl View {
 
         self.needs_redraw = true;
     }
+    // 文本编辑代码区域结束
+
 
     // region: Rendering
     // 渲染方法代码
@@ -326,7 +342,7 @@ impl View {
         if self.text_location.grapheme_index > 0 {
             // 向左移动一个图形单元
             self.text_location.grapheme_index -= 1;
-        } else {
+        } else if self.text_location.line_index > 0 {
             // 否则移动到上一行的结尾
             self.move_up(1);
             self.move_to_end_of_line();

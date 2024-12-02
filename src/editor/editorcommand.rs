@@ -17,7 +17,9 @@ pub enum EditorCommand {
     Move(Direction),
     Resize(Size),
     Quit,
-    Insert(char)
+    Insert(char),
+    Backspace,
+    Delete
 }
 
 // clippy::as_conversions: Will run into problems for rare edge case systems where usize < u16
@@ -41,6 +43,8 @@ impl TryFrom<Event> for EditorCommand {
                 (KeyCode::PageUp, _) => Ok(Self::Move(Direction::PageUp)),
                 (KeyCode::Home, _) => Ok(Self::Move(Direction::Home)),
                 (KeyCode::End, _) => Ok(Self::Move(Direction::End)),
+                (KeyCode::Backspace, _) => Ok(Self::Backspace),
+                (KeyCode::Delete, _) => Ok(Self::Delete),
                 _ => Err(format!("不支持的Key Code: {code:?}")),
             },
             Event::Resize(witdth_u16, height_u16) => {
