@@ -17,8 +17,11 @@ pub enum EditorCommand {
     Move(Direction),
     Resize(Size),
     Quit,
+    Insert(char)
 }
 
+// clippy::as_conversions: Will run into problems for rare edge case systems where usize < u16
+#[allow(clippy::as_conversions)]
 impl TryFrom<Event> for EditorCommand {
     type Error = String;
     fn try_from(event: Event) -> Result<Self, Self::Error> {
@@ -27,6 +30,9 @@ impl TryFrom<Event> for EditorCommand {
                 code, modifiers, ..
             }) => match (code, modifiers) {
                 (KeyCode::Char('q'), KeyModifiers::CONTROL) => Ok(Self::Quit),
+                (KeyCode::Char(character), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
+                    Ok(Self::Insert(character))
+                },
                 (KeyCode::Up, _) => Ok(Self::Move(Direction::Up)),
                 (KeyCode::Down, _) => Ok(Self::Move(Direction::Down)),
                 (KeyCode::Left, _) => Ok(Self::Move(Direction::Left)),
@@ -39,10 +45,7 @@ impl TryFrom<Event> for EditorCommand {
             },
             Event::Resize(witdth_u16, height_u16) => {
                 // 当终端大小发生变化时，调整视图大小
-                // clippy::as_conversions: Will run into problems for rare edge case systems where usize < u16
-                #[allow(clippy::as_conversions)]
                 let height = height_u16 as usize;
-                #[allow(clippy::as_conversions)]
                 let width = witdth_u16 as usize;
                 Ok(Self::Resize(Size { height, width }))
             }

@@ -73,28 +73,12 @@ impl Editor {
         };
 
         if should_process {
-            match EditorCommand::try_from(event) {
-                Ok(command) => {
-                    // 判断退出
-                    if matches!(command, EditorCommand::Quit) {
-                        self.should_quit = true
-                    } else {
-                        self.view.handle_command(command);
-                    }
-                },
-                Err(err) => {
-                    #[cfg(debug_assertions)]
-                    {
-                        // panic!("无法处理命名: {err}");
-                        // eprintln!("无法处理命令: {err}");
-                    }
+            if let Ok(command) = EditorCommand::try_from(event) {
+                if matches!(command, EditorCommand::Quit) {
+                    self.should_quit = true;
+                } else {
+                    self.view.handle_command(command);
                 }
-            }
-        } else {
-            #[cfg(debug_assertions)]
-            {
-                // panic!("收到并丢弃了不支持的事件或非按键事件。");
-                // eprintln!("收到并丢弃了不支持的事件或非按键事件: {:?}", event);
             }
         }
     }

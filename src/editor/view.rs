@@ -38,6 +38,7 @@ impl View {
             EditorCommand::Resize(size) => self.resize(size),
             EditorCommand::Move(direction) => self.move_text_location(&direction),
             EditorCommand::Quit => {},
+            EditorCommand::Insert(character) => self.insert_char(character)
         }
     }
 
@@ -62,6 +63,32 @@ impl View {
         self.size = to;
         self.scroll_text_location_into_view();
         // 设置成需要重新渲染
+        self.needs_redraw = true;
+    }
+
+    // 插入字符
+    fn insert_char(&mut self, character: char) {
+        // 获取当前所在行的内容长度
+        let old_len = self.buffer
+            .lines
+            .get(self.text_location.line_index)
+            .map_or(0, Line::grapheme_count);
+
+        // 在位置上插入字符
+        self.buffer.insert_char(character, self.text_location);
+
+        // 获取插入后的长度
+        let new_len = self.buffer
+            .lines
+            .get(self.text_location.line_index)
+            .map_or(0, Line::grapheme_count);
+
+        // 正常来说，插入字符后光标要右移一下。这里通过插入前后得长度查来判断
+        let grapheme = new_len.saturating_sub(old_len);
+        if grapheme > 0 {
+            self.move_right();
+        }
+
         self.needs_redraw = true;
     }
 
@@ -177,7 +204,9 @@ impl View {
         };
 
         // 如果滚动偏移行发生变化，需要重新渲染
-        self.needs_redraw = self.needs_redraw || offset_changed;
+        if offset_changed {
+            self.needs_redraw = true
+        }
     }
 
     // 水平滚动
@@ -196,7 +225,9 @@ impl View {
             false
         };
         
-        self.needs_redraw = self.needs_redraw || offset_changed;
+        if offset_changed {
+            self.needs_redraw = true
+        }
     }
 
     // 滚动至文本内容位置

@@ -30,9 +30,14 @@ pub struct Line {
 }
 impl Line {
     pub fn from(line_str: &str) -> Self {
+        let fragments = Self::str_to_fragment(line_str);
+        Self { fragments }
+    }
+
+    fn str_to_fragment(line_str: &str) -> Vec<TextFragment> {
         // 使用 `.graphemes(true)` 将字符串拆分成图形单元（grapheme clusters）
         // 图形单元是人类可感知的字符单位，可能由多个 Unicode 码点组成
-        let fragments = line_str
+        line_str
             .graphemes(true)
             .map(|grapheme| {
                 let (replacement, rendered_width) = Self::replacement_character(grapheme)
@@ -56,8 +61,7 @@ impl Line {
                     replacement,
                 }
             })
-            .collect();
-        Self { fragments }
+            .collect()
     }
 
     // 处理替换字符
@@ -134,5 +138,28 @@ impl Line {
                 }
             })
             .sum()
+    }
+    
+    // 插入字符
+    pub fn insert_char(&mut self, character: char, grapheme_index: usize) {
+        let mut result = String::new();
+
+        // 遍历当前行内容
+        for (index, fragment) in self.fragments.iter_mut().enumerate() {
+            // 在对应插入位置push到result字符串中
+            if index == grapheme_index {
+                result.push(character);
+            }
+            // 将原本的东西丢进去
+            result.push_str(&fragment.grapheme);
+        }
+
+        // 等于或超出末尾就直接push
+        if grapheme_index >= self.fragments.len() {
+            result.push(character);
+        }
+
+        // 经过后保存
+        self.fragments = Self::str_to_fragment(&result);
     }
 }
