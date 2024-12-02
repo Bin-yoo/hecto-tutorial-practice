@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::{fmt, ops::Range};
 
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -28,13 +28,14 @@ struct TextFragment {
 pub struct Line {
     fragments: Vec<TextFragment>
 }
+
 impl Line {
     pub fn from(line_str: &str) -> Self {
-        let fragments = Self::str_to_fragment(line_str);
+        let fragments = Self::str_to_fragments(line_str);
         Self { fragments }
     }
 
-    fn str_to_fragment(line_str: &str) -> Vec<TextFragment> {
+    fn str_to_fragments(line_str: &str) -> Vec<TextFragment> {
         // 使用 `.graphemes(true)` 将字符串拆分成图形单元（grapheme clusters）
         // 图形单元是人类可感知的字符单位，可能由多个 Unicode 码点组成
         line_str
@@ -160,7 +161,7 @@ impl Line {
         }
 
         // 经过后保存
-        self.fragments = Self::str_to_fragment(&result);
+        self.fragments = Self::str_to_fragments(&result);
     }
     
     pub fn delete(&mut self, grapheme_index: usize) {
@@ -175,6 +176,25 @@ impl Line {
         }
 
         // 经过后保存
-        self.fragments = Self::str_to_fragment(&result);
+        self.fragments = Self::str_to_fragments(&result);
+    }
+
+    // 追加内容
+    pub fn append(&mut self, other: &Self) {
+        let mut concat = self.to_string();
+        concat.push_str(&other.to_string());
+        self.fragments = Self::str_to_fragments(&concat);
+    }
+
+}
+
+impl fmt::Display for Line {
+    fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        let result: String = self
+            .fragments
+            .iter()
+            .map(|fragment| fragment.grapheme.clone())
+            .collect();
+        write!(formatter, "{result}")
     }
 }

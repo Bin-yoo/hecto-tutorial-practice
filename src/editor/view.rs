@@ -70,10 +70,12 @@ impl View {
 
     // region: Text editing
     // 文本编辑代码区域
-
     fn backspace(&mut self) {
-        self.move_left();
-        self.delete();
+        // 确保我们只在文档贯标不位于左上角时向左移动。
+        if self.text_location.line_index != 0 || self.text_location.grapheme_index != 0 {
+            self.move_text_location(&Direction::Left);
+            self.delete();
+        }
     }
     fn delete(&mut self) {
         self.buffer.delete(self.text_location);
@@ -100,7 +102,7 @@ impl View {
         // 正常来说，插入字符后光标要右移一下。这里通过插入前后得长度查来判断
         let grapheme = new_len.saturating_sub(old_len);
         if grapheme > 0 {
-            self.move_right();
+            self.move_text_location(&Direction::Right);
         }
 
         self.needs_redraw = true;

@@ -41,8 +41,23 @@ impl Buffer {
     }
     
     pub fn delete(&mut self, at: Location) {
-        if let Some(line) = self.lines.get_mut(at.line_index) {
-            line.delete(at.grapheme_index);
+        if let Some(line) = self.lines.get(at.line_index) {
+            // 如果删除位置位于当前行的末尾且不是文件的最后一行，
+            // 则需要将下一行连接到当前行上，即合并两行。
+            if at.grapheme_index >= line.grapheme_count()
+                && self.lines.len() > at.line_index.saturating_add(1)
+            {
+                // 移除下一行并将其内容附加到当前行
+                let next_line = self.lines.remove(at.line_index.saturating_add(1));
+                // 安全性：由于我们已经检查了下一行的存在，因此可以安全地使用索引访问。
+                #[allow(clippy::indexing_slicing)]
+                self.lines[at.line_index].append(&next_line);
+            } else if at.grapheme_index < line.grapheme_count() {
+                // 删除指定位置的字符
+                #[allow(clippy::indexing_slicing)]
+                self.lines[at.line_index].delete(at.grapheme_index);
+            }
+            // 如果删除位置超出了当前行的长度，但没有下一行可合并，则不做任何操作
         }
     }
 }
