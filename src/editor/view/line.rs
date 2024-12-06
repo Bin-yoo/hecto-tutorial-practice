@@ -25,6 +25,7 @@ struct TextFragment {
     replacement: Option<char>,
 }
 
+#[derive(Default)]
 pub struct Line {
     fragments: Vec<TextFragment>
 }
@@ -142,13 +143,13 @@ impl Line {
     }
     
     // 插入字符
-    pub fn insert_char(&mut self, character: char, grapheme_index: usize) {
+    pub fn insert_char(&mut self, character: char, at: usize) {
         let mut result = String::new();
 
         // 遍历当前行内容
         for (index, fragment) in self.fragments.iter_mut().enumerate() {
             // 在对应插入位置push到result字符串中
-            if index == grapheme_index {
+            if index == at {
                 result.push(character);
             }
             // 将原本的东西丢进去
@@ -156,7 +157,7 @@ impl Line {
         }
 
         // 等于或超出末尾就直接push
-        if grapheme_index >= self.fragments.len() {
+        if at >= self.fragments.len() {
             result.push(character);
         }
 
@@ -164,13 +165,13 @@ impl Line {
         self.fragments = Self::str_to_fragments(&result);
     }
     
-    pub fn delete(&mut self, grapheme_index: usize) {
+    pub fn delete(&mut self, at: usize) {
         let mut result = String::new();
 
         // 遍历当前行内容
         for (index, fragment) in self.fragments.iter_mut().enumerate() {
             // 非对应位置的全放进去,及通过忽略对应位置内容来达到删除的效果
-            if index != grapheme_index {
+            if index != at {
                 result.push_str(&fragment.grapheme);
             }
         }
@@ -186,6 +187,24 @@ impl Line {
         self.fragments = Self::str_to_fragments(&concat);
     }
 
+    // 分隔方法：在指定的图形单元索引处将行分割为两部分。
+    pub fn split(&mut self, at: usize) -> Self {
+        // 如果提供的索引超出当前行中图形单元的数量，则返回一个空的新行。
+        if at > self.fragments.len() {
+            return Self::default();
+        }
+
+        // 使用 Vec 的 split_off 方法来获取从 'at' 索引开始的所有片段，
+        // 这个方法会修改原始的 'self.fragments'，使其只包含前 'at' 个片段，
+        // 并返回一个新的 Vec，包含剩余的片段。
+        let remainder = self.fragments.split_off(at);
+
+        // 创建一个新的 Line 实例，并将其 fragments 设置为从原始行中分离出来的片段。
+        // 原始行现在包含了分割点之前的内容，新行包含了分割点之后的内容。
+        Self {
+            fragments: remainder
+        }
+    }
 }
 
 impl fmt::Display for Line {
