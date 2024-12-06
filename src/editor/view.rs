@@ -42,8 +42,23 @@ impl View {
             EditorCommand::Delete => self.delete(),
             EditorCommand::Backspace => self.delete_backward(),
             EditorCommand::Enter => self.insert_newline(),
+            EditorCommand::Save => self.save(),
         }
     }
+
+    /// `resize` 方法用于调整 `View` 的尺寸，并设置标志要求重新渲染。
+    ///
+    /// # 参数
+    /// - `to`: 新的终端窗口大小。
+    pub fn resize(&mut self, to: Size) {
+        self.size = to;
+        self.scroll_text_location_into_view();
+        // 设置成需要重新渲染
+        self.needs_redraw = true;
+    }
+
+    // region: file i/o
+    // 文件io处理代码区域
 
     /// 读取文件内容并加载到缓冲区。
     ///
@@ -58,16 +73,11 @@ impl View {
         }
     }
 
-    /// `resize` 方法用于调整 `View` 的尺寸，并设置标志要求重新渲染。
-    ///
-    /// # 参数
-    /// - `to`: 新的终端窗口大小。
-    pub fn resize(&mut self, to: Size) {
-        self.size = to;
-        self.scroll_text_location_into_view();
-        // 设置成需要重新渲染
-        self.needs_redraw = true;
+    fn save(&self) {
+        let _ = self.buffer.save();
     }
+
+    // 文件io处理代码区域结束
 
     // region: Text editing
     // 文本编辑代码区域
