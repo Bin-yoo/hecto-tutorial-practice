@@ -4,7 +4,7 @@ use super::terminal::Size;
 /// 定义ui组件行为方法的trait
 pub trait UIComponent {
     // 标记此 UI 组件是否需要重绘
-    fn mark_redraw(&mut self, value: bool);
+    fn set_needs_redraw(&mut self, value: bool);
 
     // 判断组件是否需要重绘
     fn needs_redraw(&self) -> bool;
@@ -12,7 +12,7 @@ pub trait UIComponent {
     // 更新组件大小并标记为需要重绘，默认实现调用了 set_size 方法
     fn resize(&mut self, size: Size) {
         self.set_size(size);
-        self.mark_redraw(true);
+        self.set_needs_redraw(true);
     }
 
     // 设置组件的大小，必须由每个具体组件实现
@@ -22,7 +22,7 @@ pub trait UIComponent {
     fn render(&mut self, origin_y: usize) {
         if self.needs_redraw() {
             match self.draw(origin_y) {
-                Ok(()) => self.mark_redraw(false),
+                Ok(()) => self.set_needs_redraw(false),
                 Err(err) => {
                     #[cfg(debug_assertions)]
                     {

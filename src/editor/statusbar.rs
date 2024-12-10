@@ -20,7 +20,7 @@ impl StatusBar {
 }
 
 impl UIComponent for StatusBar {
-    fn mark_redraw(&mut self, value: bool) {
+    fn set_needs_redraw(&mut self, value: bool) {
         self.needs_redraw = value
     }
 

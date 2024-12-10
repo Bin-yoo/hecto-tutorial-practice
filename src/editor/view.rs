@@ -66,7 +66,7 @@ impl View {
     pub fn load(&mut self, file_name: &str) {
         if let Ok(buffer) = Buffer::load(file_name) {
             self.buffer = buffer;
-            self.mark_redraw(true);
+            self.set_needs_redraw(true);
         }
     }
 
@@ -82,7 +82,7 @@ impl View {
     fn insert_newline(&mut self) {
         self.buffer.insert_newline(self.text_location);
         self.move_text_location(Direction::Right);
-        self.mark_redraw(true);
+        self.set_needs_redraw(true);
     }
 
     fn delete_backward(&mut self) {
@@ -95,7 +95,7 @@ impl View {
 
     fn delete(&mut self) {
         self.buffer.delete(self.text_location);
-        self.mark_redraw(true);
+        self.set_needs_redraw(true);
     }
 
     // 插入字符
@@ -121,7 +121,7 @@ impl View {
             self.move_text_location(Direction::Right);
         }
 
-        self.mark_redraw(true);
+        self.set_needs_redraw(true);
     }
     // 文本编辑代码区域结束
 
@@ -354,7 +354,7 @@ impl View {
 }
 
 impl UIComponent for View {
-    fn mark_redraw(&mut self, value: bool) {
+    fn set_needs_redraw(&mut self, value: bool) {
         self.needs_redraw = value;
     }
 
