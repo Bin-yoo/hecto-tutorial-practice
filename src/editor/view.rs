@@ -1,5 +1,5 @@
 use std::{cmp::min, io::Error, str};
-use super::{documentstatus::DocumentStatus, editorcommand::{Direction, EditorCommand}, terminal::{Position, Size, Terminal}, uicomponent::UIComponent, NAME, VERSION};
+use super::{command::{Edit, Move}, documentstatus::DocumentStatus, terminal::{Position, Size, Terminal}, uicomponent::UIComponent, NAME, VERSION};
 use buffer::Buffer;
 use line::Line;
 
@@ -38,20 +38,38 @@ impl View {
         }
     }
 
-    /// 处理编辑器命令。
+    /// 处理编辑命令。
     ///
     /// # 参数
-    /// - `command`: 编辑器命令。
-    pub fn handle_command(&mut self, comand: EditorCommand) {
-        match comand {
-            EditorCommand::Resize(_) | EditorCommand::Quit => {},
-            EditorCommand::Move(direction) => self.move_text_location(direction),
-            EditorCommand::Insert(character) => self.insert_char(character),
-            EditorCommand::Delete => self.delete(),
-            EditorCommand::Backspace => self.delete_backward(),
-            EditorCommand::Enter => self.insert_newline(),
-            EditorCommand::Save => self.save(),
+    /// - `command`: 编辑命令枚举。
+    pub fn handle_edit_command(&mut self, command: Edit) {
+        match command {
+            Edit::Insert(character) => self.insert_char(character),
+            Edit::Delete => self.delete(),
+            Edit::DeleteBackward => self.delete_backward(),
+            Edit::InsertNewline => self.insert_newline(),
         }
+    }
+
+    /// 处理移动命令。
+    ///
+    /// # 参数
+    /// - `command`: 移动命令枚举。
+    pub fn handle_move_command(&mut self, command: Move) {
+        let Size { height, .. } = self.size;
+        match command {
+            Move::Up => self.move_up(1),
+            Move::Down => self.move_down(1),
+            Move::Left => self.move_left(),
+            Move::Right => self.move_right(),
+            Move::PageUp => self.move_up(height.saturating_sub(1)),
+            Move::PageDown => self.move_down(height.saturating_sub(1)),
+            Move::StartOfLine => self.move_to_start_of_line(),
+            Move::EndOfLine => self.move_to_end_of_line(),
+        }
+
+        // 处理滚动显示位置
+        self.scroll_text_location_into_view();
     }
 
     // region: file i/o
@@ -63,15 +81,16 @@ impl View {
     /// - `file_name`: 要加载的文件名。
     ///
     /// 如果文件加载成功，则将其内容保存到缓冲区，并标记视图需要重新渲染。
-    pub fn load(&mut self, file_name: &str) {
-        if let Ok(buffer) = Buffer::load(file_name) {
-            self.buffer = buffer;
-            self.set_needs_redraw(true);
-        }
+    pub fn load(&mut self, file_name: &str) -> Result<(), Error> {
+        let buffer = Buffer::load(file_name)?;
+        self.buffer = buffer;
+        self.set_needs_redraw(true);
+        Ok(())
     }
 
-    fn save(&mut self) {
-        let _ = self.buffer.save();
+    /// 保存缓冲区内容到文件
+    pub fn save(&mut self) -> Result<(), Error> {
+        self.buffer.save()
     }
 
     // 文件io处理代码区域结束
@@ -81,14 +100,14 @@ impl View {
 
     fn insert_newline(&mut self) {
         self.buffer.insert_newline(self.text_location);
-        self.move_text_location(Direction::Right);
+        self.handle_move_command(Move::Right);
         self.set_needs_redraw(true);
     }
 
     fn delete_backward(&mut self) {
         // 确保我们只在文档贯标不位于左上角时向左移动。
         if self.text_location.line_index != 0 || self.text_location.grapheme_index != 0 {
-            self.move_text_location(Direction::Left);
+            self.handle_move_command(Move::Left);
             self.delete();
         }
     }
@@ -118,7 +137,7 @@ impl View {
         // 正常来说，插入字符后光标要右移一下。这里通过插入前后得长度查来判断
         let grapheme = new_len.saturating_sub(old_len);
         if grapheme > 0 {
-            self.move_text_location(Direction::Right);
+            self.handle_move_command(Move::Right);
         }
 
         self.set_needs_redraw(true);
@@ -244,26 +263,6 @@ impl View {
 
     // region: text location movement
     // 文本位置移动代码
-
-    // 移动文本位置
-    fn move_text_location(&mut self, direction: Direction) {
-        let Size { height, .. } = self.size;
-        // 这个匹配语句会移动位置，但不检查边界。
-        // 最终的边界检查在匹配语句之后进行。
-        match direction {
-            Direction::Up => self.move_up(1),
-            Direction::Down => self.move_down(1),
-            Direction::Left => self.move_left(),
-            Direction::Right => self.move_right(),
-            Direction::PageUp => self.move_up(height.saturating_sub(1)),
-            Direction::PageDown => self.move_down(height.saturating_sub(1)),
-            Direction::Home => self.move_to_start_of_line(),
-            Direction::End => self.move_to_end_of_line(),
-        }
-
-        // 滚动视图以使文本位置可见
-        self.scroll_text_location_into_view();
-    }
 
     // 向上移动指定行数
     fn move_up(&mut self, step: usize) {
