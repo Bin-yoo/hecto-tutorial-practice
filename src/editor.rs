@@ -11,23 +11,17 @@ mod terminal;
 mod view;
 mod editorcommand;
 mod statusbar;
+mod documentstatus;
+mod fileinfo;
 
-#[derive(Default, Eq, PartialEq, Debug)]
-pub struct DocumentStatus {
-    // 文档总行数
-    total_lines: usize,
-    // 当前行
-    current_line_index: usize,
-    // 是否已修改
-    is_modified: bool,
-    // 文件名
-    file_name: Option<String>,
-}
+pub const NAME: &str = env!("CARGO_PKG_NAME");
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub struct Editor {
     should_quit: bool,
     view: View,
-    status_bar: StatusBar
+    status_bar: StatusBar,
+    title: String
 }
 
 impl Editor {
@@ -42,20 +36,37 @@ impl Editor {
         }));
         // 初始化终端
         Terminal::initialize()?;
-        // 创建视图组件,空出底部两行
-        let mut view = View::new(2);
+        let mut editor = Self {
+            should_quit: false,
+            // 创建视图组件,空出底部两行
+            view: View::new(2),
+            // 状态栏空出一行
+            status_bar: StatusBar::new(1),
+            title: String::new(),
+        };
         // 处理命令行参数，尝试加载文件
         let args: Vec<String> = env::args().collect();
         if let Some(file_name) = args.get(1) {
-            view.load(file_name);
+            editor.view.load(file_name);
         }
 
-        Ok(Self {
-            should_quit: false,
-            view,
-            // 空出一行
-            status_bar: StatusBar::new(1),
-        })
+        // 刷新状态
+        editor.refresh_status();
+
+        Ok(editor)
+    }
+
+    /// 刷新编辑器状态
+    pub fn refresh_status(&mut self) {
+        // 获取状态,格式化title输出
+        let status = self.view.get_status();
+        let title = format!("{} - {NAME}", status.file_name);
+        // 更新状态栏
+        self.status_bar.update_status(status);
+        // 判断标题是否已更改,并且写入终端成功.则更新editor保存的title
+        if title != self.title && matches!(Terminal::set_title(&title), Ok(())) {
+            self.title = title;
+        }
     }
 
     /// 运行编辑器主循环。

@@ -1,7 +1,7 @@
 use crossterm::cursor::{Hide, MoveTo, Show};
 use crossterm::{queue, Command};
-use crossterm::style::Print;
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, size, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::style::{Attribute, Print};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, size, Clear, ClearType, DisableLineWrap, EnableLineWrap, EnterAlternateScreen, LeaveAlternateScreen, SetTitle};
 use std::io::{stdout, Error, Write};
 
 #[derive(Default, Copy, Clone)]
@@ -36,6 +36,8 @@ impl Terminal {
     pub fn terminate() -> Result<(), Error> {
         // 退出备用屏幕
         Self::leave_alternate_screen()?;
+        // 重新启用换行
+        Self::enable_line_wrap()?;
         // 显示光标
         Self::show_caret()?;
         // 刷新缓冲区
@@ -50,10 +52,30 @@ impl Terminal {
         // 进入原始模式并切换到备用屏幕。
         enable_raw_mode()?;
         Self::enter_alternate_screen()?;
+        // 禁用换行
+        Self::disable_line_wrap()?;
         // 清屏
         Self::clear_screen()?;
         // 刷新缓冲区
         Self::execute()?;
+        Ok(())
+    }
+
+    /// 禁用换行
+    pub fn disable_line_wrap() -> Result<(), Error> {
+        Self::queue_command(DisableLineWrap)?;
+        Ok(())
+    }
+
+    /// 启用换行
+    pub fn enable_line_wrap() -> Result<(), Error> {
+        Self::queue_command(EnableLineWrap)?;
+        Ok(())
+    }
+
+    /// 设置终端标题
+    pub fn set_title(title: &str) -> Result<(), Error> {
+        Self::queue_command(SetTitle(title))?;
         Ok(())
     }
 
@@ -69,13 +91,13 @@ impl Terminal {
         Ok(())
     }
 
-    // 清除终端屏幕
+    /// 清除终端屏幕
     pub fn clear_screen() -> Result<(), Error> {
         Self::queue_command(Clear(ClearType::All))?;
         Ok(())
     }
 
-    // 清除当前行
+    /// 清除当前行
     pub fn clear_line() -> Result<(), Error> {
         Self::queue_command(Clear(ClearType::CurrentLine))?;
         Ok(())
@@ -103,7 +125,7 @@ impl Terminal {
         Ok(())
     }
 
-    /// 在指定行打印文本。
+    /// 在指定行打印文本
     pub fn print_row(row: usize, line_text: &str) -> Result<(), Error> {
         // 移动光标到指定行的开头
         Self::move_caret_to(Position { row, col: 0})?;
@@ -113,7 +135,25 @@ impl Terminal {
         Ok(())
     }
 
-    // 打印
+    /// 在指定行打印颜色反转的文本
+    pub fn print_inverted_row(row: usize, line_text: &str) -> Result<(), Error> {
+        let width = Self::size()?.width;
+        Self::print_row(
+            row,
+            &format!(
+                // 使用宽度填充并确保文本符合终端宽度
+                "{}{:width$.width$}{}",
+                // 开始反转颜色
+                Attribute::Reverse,
+                // 实际要显示的文本
+                line_text,
+                // 结束反转颜色，恢复默认样式
+                Attribute::Reset
+            ),
+        )
+    }
+
+    /// 打印
     pub fn print(str: &str) -> Result<(), Error> {
         Self::queue_command(Print(str))?;
         Ok(())
@@ -133,13 +173,13 @@ impl Terminal {
         Ok(Size { height, width })
     }
     
-    // 执行刷新缓冲区
+    /// 执行刷新缓冲区
     pub fn execute() -> Result<(), Error> {
         stdout().flush()?;
         Ok(())
     }
 
-    // 执行命令
+    /// 执行命令
     fn queue_command<T: Command>(command: T) -> Result<(), Error> {
         queue!(stdout(), command)?;
         Ok(())

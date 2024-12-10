@@ -1,13 +1,10 @@
 use std::{cmp::min, str};
-use super::{editorcommand::{Direction, EditorCommand}, terminal::{Position, Size, Terminal}, DocumentStatus};
+use super::{documentstatus::DocumentStatus, editorcommand::{Direction, EditorCommand}, terminal::{Position, Size, Terminal}, NAME, VERSION};
 use buffer::Buffer;
 use line::Line;
 
 mod buffer;
 mod line;
-
-const NAME: &str = env!("CARGO_PKG_NAME");
-const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Copy, Clone, Default)]
 pub struct Location {
@@ -26,6 +23,8 @@ pub struct View {
     text_location: Location,
     // view的偏移
     scroll_offset: Position,
+    // 底部距离
+    margin_bottom: usize
 }
 
 impl View {
@@ -41,6 +40,7 @@ impl View {
             },
             text_location: Location::default(),
             scroll_offset: Position::default(),
+            margin_bottom
         }
     }
 
@@ -49,7 +49,7 @@ impl View {
         DocumentStatus {
             total_lines: self.buffer.height(),
             current_line_index: self.text_location.line_index,
-            file_name: self.buffer.file_name.clone(),
+            file_name: format!("{}", self.buffer.file_info),
             is_modified: self.buffer.dirty,
         }
     }
@@ -76,7 +76,10 @@ impl View {
     /// # 参数
     /// - `to`: 新的终端窗口大小。
     pub fn resize(&mut self, to: Size) {
-        self.size = to;
+        self.size = Size {
+            width: to.width,
+            height: to.height.saturating_sub(self.margin_bottom),
+        };
         self.scroll_text_location_into_view();
         // 设置成需要重新渲染
         self.needs_redraw = true;
@@ -167,8 +170,8 @@ impl View {
     /// - 检查终端窗口的大小，如果大小为 0，跳过渲染。
     /// - 否则，逐行渲染内容。
     pub fn render(&mut self) {
-        // 不需重新渲染则直接返回
-        if !self.needs_redraw {
+        // 不需重新渲染或高度=0则直接返回
+        if !self.needs_redraw || self.size.height == 0 {
             return;
         }
          // 如果终端窗口的高度或宽度为 0，跳过渲染
@@ -225,22 +228,17 @@ impl View {
     /// - 返回一个格式化后的欢迎信息，若终端宽度小于欢迎信息长度，则返回波浪符 "~"。
     fn build_welcome_message(width: usize) -> String {
         if width == 0 {
-            return " ".to_string();
+            return String::new()
         }
         let welcome_message = format!("{NAME} editor -- version {VERSION}");
         let len = welcome_message.len();
-        // 宽度不够就返回波浪符
-        if width <= len {
+        let remaining_width = width.saturating_sub(1);
+        // 宽度不够就隐藏隐藏欢迎消息
+        if remaining_width < len {
             return "~".to_string();
         }
-        // 终端宽度减去欢迎语长度得到空余部分长度,再除以2
-        // 计算欢迎信息两侧的空白填充长度，确保其居中
-        #[allow(clippy::integer_division)]
-        let padding = (width.saturating_sub(len).saturating_sub(1)) / 2;
-        // 构造完整的欢迎信息字符串，并进行截断以适应终端宽度
-        let mut full_message = format!("~{}{}", " ".repeat(padding), welcome_message);
-        full_message.truncate(width);
-        full_message
+
+        format!("{:<1}{:^remaining_width$}", "~", welcome_message)
     }
 
     // endregion
