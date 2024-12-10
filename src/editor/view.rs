@@ -1,5 +1,5 @@
 use std::{cmp::min, str};
-use super::{editorcommand::{Direction, EditorCommand}, terminal::{Position, Size, Terminal}};
+use super::{editorcommand::{Direction, EditorCommand}, terminal::{Position, Size, Terminal}, DocumentStatus};
 use buffer::Buffer;
 use line::Line;
 
@@ -29,6 +29,31 @@ pub struct View {
 }
 
 impl View {
+
+    pub fn new(margin_bottom: usize) -> Self {
+        let terminal_size = Terminal::size().unwrap_or_default();
+        Self {
+            buffer: Buffer::default(),
+            needs_redraw: true,
+            size: Size {
+                width: terminal_size.width,
+                height: terminal_size.height.saturating_sub(margin_bottom),
+            },
+            text_location: Location::default(),
+            scroll_offset: Position::default(),
+        }
+    }
+
+    // 获取状态
+    pub fn get_status(&self) -> DocumentStatus {
+        DocumentStatus {
+            total_lines: self.buffer.height(),
+            current_line_index: self.text_location.line_index,
+            file_name: self.buffer.file_name.clone(),
+            is_modified: self.buffer.dirty,
+        }
+    }
+
     /// 处理编辑器命令。
     ///
     /// # 参数
@@ -36,7 +61,7 @@ impl View {
     pub fn handle_command(&mut self, comand: EditorCommand) {
         match comand {
             EditorCommand::Resize(size) => self.resize(size),
-            EditorCommand::Move(direction) => self.move_text_location(&direction),
+            EditorCommand::Move(direction) => self.move_text_location(direction),
             EditorCommand::Quit => {},
             EditorCommand::Insert(character) => self.insert_char(character),
             EditorCommand::Delete => self.delete(),
@@ -73,7 +98,7 @@ impl View {
         }
     }
 
-    fn save(&self) {
+    fn save(&mut self) {
         let _ = self.buffer.save();
     }
 
@@ -84,14 +109,14 @@ impl View {
 
     fn insert_newline(&mut self) {
         self.buffer.insert_newline(self.text_location);
-        self.move_text_location(&Direction::Right);
+        self.move_text_location(Direction::Right);
         self.needs_redraw = true;
     }
 
     fn delete_backward(&mut self) {
         // 确保我们只在文档贯标不位于左上角时向左移动。
         if self.text_location.line_index != 0 || self.text_location.grapheme_index != 0 {
-            self.move_text_location(&Direction::Left);
+            self.move_text_location(Direction::Left);
             self.delete();
         }
     }
@@ -121,7 +146,7 @@ impl View {
         // 正常来说，插入字符后光标要右移一下。这里通过插入前后得长度查来判断
         let grapheme = new_len.saturating_sub(old_len);
         if grapheme > 0 {
-            self.move_text_location(&Direction::Right);
+            self.move_text_location(Direction::Right);
         }
 
         self.needs_redraw = true;
@@ -301,7 +326,7 @@ impl View {
     // 文本位置移动代码
 
     // 移动文本位置
-    fn move_text_location(&mut self, direction: &Direction) {
+    fn move_text_location(&mut self, direction: Direction) {
         let Size { height, .. } = self.size;
         // 这个匹配语句会移动位置，但不检查边界。
         // 最终的边界检查在匹配语句之后进行。
@@ -406,17 +431,4 @@ impl View {
     // endregion
     // 文本位置移动代码结束
 
-}
-
-impl Default for View {
-    fn default() -> Self {
-        Self {
-            buffer: Buffer::default(),
-            needs_redraw: true,
-            // 尝试获取终端的当前大小，如果失败则使用默认值
-            size: Terminal::size().unwrap_or_default(),
-            text_location: Location::default(),
-            scroll_offset: Position::default()
-        }
-    }
 }

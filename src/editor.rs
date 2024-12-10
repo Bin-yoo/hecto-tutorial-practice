@@ -3,16 +3,31 @@ use std::io::Error;
 use std::panic::{set_hook, take_hook};
 use crossterm::event::{read, Event, KeyEvent, KeyEventKind};
 use editorcommand::EditorCommand;
+use statusbar::StatusBar;
 use terminal::Terminal;
 use view::View;
 
 mod terminal;
 mod view;
 mod editorcommand;
+mod statusbar;
+
+#[derive(Default, Eq, PartialEq, Debug)]
+pub struct DocumentStatus {
+    // 文档总行数
+    total_lines: usize,
+    // 当前行
+    current_line_index: usize,
+    // 是否已修改
+    is_modified: bool,
+    // 文件名
+    file_name: Option<String>,
+}
 
 pub struct Editor {
     should_quit: bool,
-    view: View
+    view: View,
+    status_bar: StatusBar
 }
 
 impl Editor {
@@ -27,8 +42,8 @@ impl Editor {
         }));
         // 初始化终端
         Terminal::initialize()?;
-        // 创建默认的视图组件
-        let mut view = View::default();
+        // 创建视图组件,空出底部两行
+        let mut view = View::new(2);
         // 处理命令行参数，尝试加载文件
         let args: Vec<String> = env::args().collect();
         if let Some(file_name) = args.get(1) {
@@ -37,7 +52,9 @@ impl Editor {
 
         Ok(Self {
             should_quit: false,
-            view
+            view,
+            // 空出一行
+            status_bar: StatusBar::new(1),
         })
     }
 
@@ -60,6 +77,9 @@ impl Editor {
                     }
                 }
             }
+            // 更新状态栏
+            let status = self.view.get_status();
+            self.status_bar.update_status(status);
         }
     }
 
@@ -78,6 +98,9 @@ impl Editor {
                     self.should_quit = true;
                 } else {
                     self.view.handle_command(command);
+                    if let EditorCommand::Resize(size) = command {
+                        self.status_bar.resize(size);
+                    }
                 }
             }
         }
@@ -87,7 +110,10 @@ impl Editor {
     fn refresh_screen(&mut self) {
         // 在刷新屏幕之前隐藏光标。
         let _ = Terminal::hide_caret();
+        // 渲染view
         self.view.render();
+        // 渲染状态栏
+        self.status_bar.render();
         // 移动光标
         let _ = Terminal::move_caret_to(self.view.caret_position());
         // 完成刷新后显示光标。
