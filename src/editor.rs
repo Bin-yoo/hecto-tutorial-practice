@@ -3,24 +3,31 @@ use std::io::Error;
 use std::panic::{set_hook, take_hook};
 use crossterm::event::{read, Event, KeyEvent, KeyEventKind};
 use editorcommand::EditorCommand;
+use messagebar::MessageBar;
 use statusbar::StatusBar;
-use terminal::Terminal;
+use terminal::{Size, Terminal};
+use uicomponent::UIComponent;
 use view::View;
 
 mod terminal;
 mod view;
 mod editorcommand;
 mod statusbar;
+mod messagebar;
+mod uicomponent;
 mod documentstatus;
 mod fileinfo;
 
 pub const NAME: &str = env!("CARGO_PKG_NAME");
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+#[derive(Default)]
 pub struct Editor {
     should_quit: bool,
     view: View,
     status_bar: StatusBar,
+    message_bar: MessageBar,
+    terminal_size: Size,
     title: String
 }
 
@@ -36,24 +43,45 @@ impl Editor {
         }));
         // 初始化终端
         Terminal::initialize()?;
-        let mut editor = Self {
-            should_quit: false,
-            // 创建视图组件,空出底部两行
-            view: View::new(2),
-            // 状态栏空出一行
-            status_bar: StatusBar::new(1),
-            title: String::new(),
-        };
+
+        // 初始化编辑器参数
+        let mut editor = Self::default();
+        let size = Terminal::size().unwrap_or_default();
+        editor.resize(size);
+
         // 处理命令行参数，尝试加载文件
         let args: Vec<String> = env::args().collect();
         if let Some(file_name) = args.get(1) {
             editor.view.load(file_name);
         }
 
+        // 设置编辑器默认消息栏消息
+        editor
+            .message_bar
+            .update_message("HELP: Ctrl-S = save | Ctrl-Q = quit".to_string());
+
         // 刷新状态
         editor.refresh_status();
 
         Ok(editor)
+    }
+
+    /// 调整编辑器大小
+    fn resize(&mut self, size: Size) {
+        self.terminal_size = size;
+        // 空出底部两行给消息栏和状态栏
+        self.view.resize(Size {
+            height: size.height.saturating_sub(2),
+            width: size.width,
+        });
+        self.message_bar.resize(Size {
+            height: 1,
+            width: size.width,
+        });
+        self.status_bar.resize(Size {
+            height: 1,
+            width: size.width,
+        });
     }
 
     /// 刷新编辑器状态
@@ -107,11 +135,10 @@ impl Editor {
             if let Ok(command) = EditorCommand::try_from(event) {
                 if matches!(command, EditorCommand::Quit) {
                     self.should_quit = true;
+                } else if let EditorCommand::Resize(size) = command {
+                    self.resize(size);
                 } else {
                     self.view.handle_command(command);
-                    if let EditorCommand::Resize(size) = command {
-                        self.status_bar.resize(size);
-                    }
                 }
             }
         }
@@ -119,12 +146,21 @@ impl Editor {
 
     // 刷新屏幕
     fn refresh_screen(&mut self) {
+        if self.terminal_size.height == 0 || self.terminal_size.width == 0 {
+            return;
+        }
         // 在刷新屏幕之前隐藏光标。
         let _ = Terminal::hide_caret();
-        // 渲染view
-        self.view.render();
+        // 渲染消息栏
+        self.message_bar.render(self.terminal_size.height.saturating_sub(1));
         // 渲染状态栏
-        self.status_bar.render();
+        if self.terminal_size.height > 1 {
+            self.status_bar.render(self.terminal_size.height.saturating_sub(2));
+        }
+        // 渲染view
+        if self.terminal_size.height > 2 {
+            self.view.render(0);
+        }
         // 移动光标
         let _ = Terminal::move_caret_to(self.view.caret_position());
         // 完成刷新后显示光标。

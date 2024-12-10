@@ -1,5 +1,5 @@
-use std::{cmp::min, str};
-use super::{documentstatus::DocumentStatus, editorcommand::{Direction, EditorCommand}, terminal::{Position, Size, Terminal}, NAME, VERSION};
+use std::{cmp::min, io::Error, str};
+use super::{documentstatus::DocumentStatus, editorcommand::{Direction, EditorCommand}, terminal::{Position, Size, Terminal}, uicomponent::UIComponent, NAME, VERSION};
 use buffer::Buffer;
 use line::Line;
 
@@ -12,37 +12,21 @@ pub struct Location {
     pub line_index: usize,
 }
 
+#[derive(Default)]
 pub struct View {
     // 存储文本内容的缓冲区
     buffer: Buffer,
     // 标记是否需要重新渲染
     needs_redraw: bool,
-    // 当前终端窗口大小
+    // View总是从 (0, 0) 开始。size 属性决定了可见区域。
     size: Size,
     // 文档中位置
     text_location: Location,
     // view的偏移
     scroll_offset: Position,
-    // 底部距离
-    margin_bottom: usize
 }
 
 impl View {
-
-    pub fn new(margin_bottom: usize) -> Self {
-        let terminal_size = Terminal::size().unwrap_or_default();
-        Self {
-            buffer: Buffer::default(),
-            needs_redraw: true,
-            size: Size {
-                width: terminal_size.width,
-                height: terminal_size.height.saturating_sub(margin_bottom),
-            },
-            text_location: Location::default(),
-            scroll_offset: Position::default(),
-            margin_bottom
-        }
-    }
 
     // 获取状态
     pub fn get_status(&self) -> DocumentStatus {
@@ -60,29 +44,14 @@ impl View {
     /// - `command`: 编辑器命令。
     pub fn handle_command(&mut self, comand: EditorCommand) {
         match comand {
-            EditorCommand::Resize(size) => self.resize(size),
+            EditorCommand::Resize(_) | EditorCommand::Quit => {},
             EditorCommand::Move(direction) => self.move_text_location(direction),
-            EditorCommand::Quit => {},
             EditorCommand::Insert(character) => self.insert_char(character),
             EditorCommand::Delete => self.delete(),
             EditorCommand::Backspace => self.delete_backward(),
             EditorCommand::Enter => self.insert_newline(),
             EditorCommand::Save => self.save(),
         }
-    }
-
-    /// `resize` 方法用于调整 `View` 的尺寸，并设置标志要求重新渲染。
-    ///
-    /// # 参数
-    /// - `to`: 新的终端窗口大小。
-    pub fn resize(&mut self, to: Size) {
-        self.size = Size {
-            width: to.width,
-            height: to.height.saturating_sub(self.margin_bottom),
-        };
-        self.scroll_text_location_into_view();
-        // 设置成需要重新渲染
-        self.needs_redraw = true;
     }
 
     // region: file i/o
@@ -97,7 +66,7 @@ impl View {
     pub fn load(&mut self, file_name: &str) {
         if let Ok(buffer) = Buffer::load(file_name) {
             self.buffer = buffer;
-            self.needs_redraw = true;
+            self.mark_redraw(true);
         }
     }
 
@@ -113,7 +82,7 @@ impl View {
     fn insert_newline(&mut self) {
         self.buffer.insert_newline(self.text_location);
         self.move_text_location(Direction::Right);
-        self.needs_redraw = true;
+        self.mark_redraw(true);
     }
 
     fn delete_backward(&mut self) {
@@ -126,7 +95,7 @@ impl View {
 
     fn delete(&mut self) {
         self.buffer.delete(self.text_location);
-        self.needs_redraw = true;
+        self.mark_redraw(true);
     }
 
     // 插入字符
@@ -152,7 +121,7 @@ impl View {
             self.move_text_location(Direction::Right);
         }
 
-        self.needs_redraw = true;
+        self.mark_redraw(true);
     }
     // 文本编辑代码区域结束
 
@@ -161,50 +130,6 @@ impl View {
     // 渲染方法代码
 
 
-    /// 渲染整个视图内容。
-    ///
-    /// 如果视图的尺寸发生了变化，或内容发生了变化，就会重新渲染。
-    ///
-    /// 渲染逻辑如下：
-    /// - 如果不需要重新渲染，直接返回。
-    /// - 检查终端窗口的大小，如果大小为 0，跳过渲染。
-    /// - 否则，逐行渲染内容。
-    pub fn render(&mut self) {
-        // 不需重新渲染或高度=0则直接返回
-        if !self.needs_redraw || self.size.height == 0 {
-            return;
-        }
-         // 如果终端窗口的高度或宽度为 0，跳过渲染
-        let Size{ height, width } = self.size;
-        if height == 0 || width == 0 {
-            return;
-        }
-
-        #[allow(clippy::integer_division)]
-        // 计算垂直居中的位置，用于显示欢迎信息
-        // 它可以稍微偏上一点或偏下一点，因为我们不在乎欢迎信息是否恰好位于正中间。
-        let vertical_center = height / 3;
-        // 获取滚动偏移量
-        let top = self.scroll_offset.row;
-        for current_row in 0..height {
-            // 判断输出
-            if let Some(line) = self.buffer.lines.get(current_row.saturating_add(top)) {
-                let left = self.scroll_offset.col;
-                let right = self.scroll_offset.col.saturating_add(width);
-                Self::render_line(current_row, &line.get_visible_graphemes(left..right));
-            } else if current_row == vertical_center && self.buffer.is_empty() {
-                // 如果当前行是垂直居中的位置且缓冲区为空，显示欢迎信息
-                Self::render_line(current_row, &Self::build_welcome_message(width));
-            } else {
-                // 否则，渲染波浪符 "~" 表示空白行
-                Self::render_line(current_row, "~");
-            }
-        }
-
-        // 渲染完毕，标记不再需要重新渲染
-        self.needs_redraw = false;
-    }
-
     /// 渲染指定行的内容。
     ///
     /// # 参数
@@ -212,11 +137,8 @@ impl View {
     /// - `line_text`: 要渲染的文本内容。
     ///
     /// 清除指定行的内容，将文本渲染到该终端行。
-    fn render_line(at: usize, line_text: &str) {
-        // 打印传入的行内容
-        let result = Terminal::print_row(at, line_text);
-        // 断言输出操作是否成功，如果失败则会在debug模式下中断程序执行
-        debug_assert!(result.is_ok(), "渲染行失败");
+    fn render_line(at: usize, line_text: &str) -> Result<(), Error> {
+        Terminal::print_row(at, line_text)
     }
 
     /// 构建欢迎信息字符串，欢迎信息内容会居中显示在终端宽度范围内。
@@ -429,4 +351,53 @@ impl View {
     // endregion
     // 文本位置移动代码结束
 
+}
+
+impl UIComponent for View {
+    fn mark_redraw(&mut self, value: bool) {
+        self.needs_redraw = value;
+    }
+
+    fn needs_redraw(&self) -> bool {
+        self.needs_redraw
+    }
+
+    fn set_size(&mut self, size: Size) {
+        self.size = size;
+        self.scroll_text_location_into_view();
+    }
+
+    fn draw(&mut self, origin_y: usize) -> Result<(), Error> {
+        let Size { height, width } = self.size;
+        let end_y = origin_y.saturating_add(height);
+
+        #[allow(clippy::integer_division)]
+        // 计算垂直居中的位置，用于显示欢迎信息
+        // 它可以稍微偏上一点或偏下一点，因为我们不在乎欢迎信息是否恰好位于正中间。
+        let top_third = height / 3;
+        // 获取滚动偏移量
+        let scroll_top = self.scroll_offset.row;
+        for current_row in origin_y..end_y {
+            // 从终端上的当前行、原点和滚动偏移量计算缓冲区中的正确行。
+            // 为了获得正确的行索引，我们必须取 current_row（屏幕上绝对的行位置）,
+            // 减去 origin_y 以得到相对于视图的当前行（范围从 0 到 self.size.height）,
+            // 然后加上滚动偏移量。
+            let line_idx = current_row
+                .saturating_sub(origin_y)
+                .saturating_add(scroll_top);
+            // 判断输出
+            if let Some(line) = self.buffer.lines.get(line_idx) {
+                let left = self.scroll_offset.col;
+                let right = self.scroll_offset.col.saturating_add(width);
+                Self::render_line(current_row, &line.get_visible_graphemes(left..right))?;
+            } else if current_row == top_third && self.buffer.is_empty() {
+                // 如果当前行是垂直居中的位置且缓冲区为空，显示欢迎信息
+                Self::render_line(current_row, &Self::build_welcome_message(width))?;
+            } else {
+                // 否则，渲染波浪符 "~" 表示空白行
+                Self::render_line(current_row, "~")?;
+            }
+        }
+        Ok(())
+    }
 }
