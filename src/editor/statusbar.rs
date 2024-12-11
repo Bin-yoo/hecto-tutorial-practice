@@ -1,4 +1,4 @@
-use super::{documentstatus::DocumentStatus, terminal::{Size, Terminal}, uicomponent::UIComponent};
+use super::{DocumentStatus, Size, Terminal, UIComponent};
 
 #[derive(Default)]
 pub struct StatusBar {
@@ -32,7 +32,7 @@ impl UIComponent for StatusBar {
         self.size = size
     }
 
-    fn draw(&mut self, origin_y: usize) -> Result<(), std::io::Error> {
+    fn draw(&mut self, origin_row: usize) -> Result<(), std::io::Error> {
         // 组装状态栏的第一部分：文件名、行数和是否修改的指示符
         let line_count = self.current_status.line_count_to_string();
         let modified_indicator = self.current_status.modified_indicator_to_string();
@@ -55,7 +55,7 @@ impl UIComponent for StatusBar {
             String::new()
         };
         // 在指定的位置打印倒置颜色的状态栏行
-        Terminal::print_inverted_row(origin_y, &to_print)?;
+        Terminal::print_inverted_row(origin_row, &to_print)?;
 
         Ok(())
     }

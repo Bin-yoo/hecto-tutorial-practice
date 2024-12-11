@@ -124,10 +124,12 @@ impl Line {
         result
     }
 
+    /// 内容长度
     pub fn grapheme_count(&self) -> usize {
         self.fragments.len()
     }
 
+    /// 计算宽度
     pub fn width_until(&self, grapheme_index: usize) -> usize {
         // 计算到指定图形单元为止的总宽度
         self.fragments
@@ -141,8 +143,13 @@ impl Line {
             })
             .sum()
     }
+
+    /// 获取行宽度
+    pub fn width(&self) -> usize {
+        self.width_until(self.grapheme_count())
+    }
     
-    // 插入字符
+    /// 插入字符
     pub fn insert_char(&mut self, character: char, at: usize) {
         let mut result = String::new();
 
@@ -164,7 +171,13 @@ impl Line {
         // 经过后保存
         self.fragments = Self::str_to_fragments(&result);
     }
+
+    /// 追加字符
+    pub fn append_char(&mut self, character: char) {
+        self.insert_char(character, self.grapheme_count());
+    }
     
+    /// 删除指定位置字符
     pub fn delete(&mut self, at: usize) {
         let mut result = String::new();
 
@@ -180,6 +193,11 @@ impl Line {
         self.fragments = Self::str_to_fragments(&result);
     }
 
+    /// 删除最后的字符
+    pub fn delete_last(&mut self) {
+        self.delete(self.grapheme_count().saturating_sub(1));
+    }
+
     // 追加内容
     pub fn append(&mut self, other: &Self) {
         let mut concat = self.to_string();
@@ -187,7 +205,7 @@ impl Line {
         self.fragments = Self::str_to_fragments(&concat);
     }
 
-    // 分隔方法：在指定的图形单元索引处将行分割为两部分。
+    /// 分隔方法：在指定的图形单元索引处将行分割为两部分。
     pub fn split(&mut self, at: usize) -> Self {
         // 如果提供的索引超出当前行中图形单元的数量，则返回一个空的新行。
         if at > self.fragments.len() {

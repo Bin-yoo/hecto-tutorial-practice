@@ -1,5 +1,5 @@
 use std::io::Error;
-use super::terminal::Size;
+use super::Size;
 
 /// 定义ui组件行为方法的trait
 pub trait UIComponent {
@@ -19,9 +19,9 @@ pub trait UIComponent {
     fn set_size(&mut self, size: Size);
 
     // 如果组件可见且需要重绘，则绘制该组件
-    fn render(&mut self, origin_y: usize) {
+    fn render(&mut self, origin_row: usize) {
         if self.needs_redraw() {
-            match self.draw(origin_y) {
+            match self.draw(origin_row) {
                 Ok(()) => self.set_needs_redraw(false),
                 Err(err) => {
                     #[cfg(debug_assertions)]
@@ -34,5 +34,5 @@ pub trait UIComponent {
     }
     
     // 实际绘制组件的方法，必须由每个具体组件实现
-    fn draw(&mut self, origin_y: usize) -> Result<(), Error>;
+    fn draw(&mut self, origin_row: usize) -> Result<(), Error>;
 }

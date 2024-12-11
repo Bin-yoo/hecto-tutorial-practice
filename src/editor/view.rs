@@ -1,10 +1,10 @@
-use std::{cmp::min, io::Error, str};
-use super::{command::{Edit, Move}, documentstatus::DocumentStatus, terminal::{Position, Size, Terminal}, uicomponent::UIComponent, NAME, VERSION};
+use std::{cmp::min, io::Error};
+use super::{command::{Edit, Move}, documentstatus::DocumentStatus, Line, Position, Size, Terminal, UIComponent, NAME, VERSION};
 use buffer::Buffer;
-use line::Line;
+use fileinfo::FileInfo;
 
 mod buffer;
-mod line;
+mod fileinfo;
 
 #[derive(Copy, Clone, Default)]
 pub struct Location {
@@ -72,6 +72,11 @@ impl View {
         self.scroll_text_location_into_view();
     }
 
+    /// 是否已加载文件
+    pub const fn is_file_loaded(&self) -> bool {
+        self.buffer.is_file_loaded()
+    }
+
     // region: file i/o
     // 文件io处理代码区域
 
@@ -91,6 +96,11 @@ impl View {
     /// 保存缓冲区内容到文件
     pub fn save(&mut self) -> Result<(), Error> {
         self.buffer.save()
+    }
+
+    /// 另存为缓冲区内容到新文件
+    pub fn save_as(&mut self, file_name: &str) -> Result<(), Error> {
+        self.buffer.save_as(file_name)
     }
 
     // 文件io处理代码区域结束
@@ -366,9 +376,9 @@ impl UIComponent for View {
         self.scroll_text_location_into_view();
     }
 
-    fn draw(&mut self, origin_y: usize) -> Result<(), Error> {
+    fn draw(&mut self, origin_row: usize) -> Result<(), Error> {
         let Size { height, width } = self.size;
-        let end_y = origin_y.saturating_add(height);
+        let end_y = origin_row.saturating_add(height);
 
         #[allow(clippy::integer_division)]
         // 计算垂直居中的位置，用于显示欢迎信息
@@ -376,13 +386,13 @@ impl UIComponent for View {
         let top_third = height / 3;
         // 获取滚动偏移量
         let scroll_top = self.scroll_offset.row;
-        for current_row in origin_y..end_y {
+        for current_row in origin_row..end_y {
             // 从终端上的当前行、原点和滚动偏移量计算缓冲区中的正确行。
             // 为了获得正确的行索引，我们必须取 current_row（屏幕上绝对的行位置）,
-            // 减去 origin_y 以得到相对于视图的当前行（范围从 0 到 self.size.height）,
+            // 减去 origin_row 以得到相对于视图的当前行（范围从 0 到 self.size.height）,
             // 然后加上滚动偏移量。
             let line_idx = current_row
-                .saturating_sub(origin_y)
+                .saturating_sub(origin_row)
                 .saturating_add(scroll_top);
             // 判断输出
             if let Some(line) = self.buffer.lines.get(line_idx) {

@@ -1,7 +1,6 @@
 use std::{fs::{read_to_string, File}, io::{Error, Write}};
-use crate::editor::fileinfo::FileInfo;
-
-use super::line::Line;
+use super::FileInfo;
+use super::Line;
 use super::Location;
 
 #[derive(Default)]
@@ -14,7 +13,7 @@ pub struct Buffer {
 
 impl Buffer {
 
-    // 读取文件内容到buffer中
+    /// 读取文件内容到buffer中
     pub fn load(file_name: &str) -> Result<Self, Error> {
         let contents = read_to_string(file_name)?;
         let lines = contents.lines()
@@ -28,21 +27,41 @@ impl Buffer {
         })
     }
 
-    // 保存内容到本地
-    pub fn save(&mut self) -> Result<(), Error> {
-        if let Some(path) = &self.file_info.path {
+    /// 保存文件内容
+    fn save_to_file(&self, file_info: &FileInfo) -> Result<(), Error> {
+        if let Some(path) = file_info.get_path() {
             let mut file = File::create(path)?;
             for line in &self.lines {
                 writeln!(file, "{line}")?;
             }
-            self.dirty = false;
         }
         Ok(())
     }
 
-    // buffer是否为空
+    /// 另存为
+    pub fn save_as(&mut self, file_name: &str) -> Result<(), Error> {
+        let file_info = FileInfo::from(file_name);
+        self.save_to_file(&file_info)?;
+        self.file_info = file_info;
+        self.dirty = false;
+        Ok(())
+    }
+    
+    /// 保存现有文件
+    pub fn save(&mut self) -> Result<(), Error> {
+        self.save_to_file(&self.file_info)?;
+        self.dirty = false;
+        Ok(())
+    }
+
+    /// buffer是否为空
     pub fn is_empty(&self) -> bool {
         self.lines.is_empty()
+    }
+
+    /// 是否已加载文件
+    pub const fn is_file_loaded(&self) -> bool {
+        self.file_info.has_path()
     }
 
     pub fn height(&self) -> usize {

@@ -1,11 +1,11 @@
 use std::{
     fmt::{self, Display},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug)]
 pub struct FileInfo {
-    pub path: Option<PathBuf>,
+    path: Option<PathBuf>,
 }
 
 impl FileInfo {
@@ -14,14 +14,22 @@ impl FileInfo {
             path: Some(PathBuf::from(file_name)),
         }
     }
+
+    /// 获取文件路径引用
+    pub fn get_path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
+    /// 获取路径是否存在bool
+    pub const fn has_path(&self) -> bool {
+        self.path.is_some()
+    }
 }
 
 impl Display for FileInfo {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let name = self
-            .path
-            // 获取引用
-            .as_ref()
+            .get_path()
             // 然后获取文件名
             .and_then(|path| path.file_name())
             // 转成str
