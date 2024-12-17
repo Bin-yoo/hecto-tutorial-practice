@@ -23,26 +23,32 @@ struct TextFragment {
     rendered_width: GraphemeWidth,
     // 替换字符（如果有）
     replacement: Option<char>,
+    // 字素字节索引
+    start_byte_idx: usize,
 }
 
 #[derive(Default)]
 pub struct Line {
-    fragments: Vec<TextFragment>
+    fragments: Vec<TextFragment>,
+    string: String,
 }
 
 impl Line {
     pub fn from(line_str: &str) -> Self {
         let fragments = Self::str_to_fragments(line_str);
-        Self { fragments }
+        Self { 
+            fragments,
+            string: String::from(line_str)
+        }
     }
 
     fn str_to_fragments(line_str: &str) -> Vec<TextFragment> {
         // 使用 `.graphemes(true)` 将字符串拆分成图形单元（grapheme clusters）
         // 图形单元是人类可感知的字符单位，可能由多个 Unicode 码点组成
         line_str
-            .graphemes(true)
-            .map(|grapheme| {
-                let (replacement, rendered_width) = Self::replacement_character(grapheme)
+            .grapheme_indices(true)
+            .map(|(byte_idx, grapheme)| {
+                let (replacement, rendered_width) = Self::get_replacement_character(grapheme)
                     .map_or_else(
                         // 如果转换的函数返回None就进行处理
                         || {
@@ -61,13 +67,19 @@ impl Line {
                     grapheme: grapheme.to_string(),
                     rendered_width,
                     replacement,
+                    start_byte_idx: byte_idx,
                 }
             })
             .collect()
     }
 
-    // 处理替换字符
-    fn replacement_character(for_str: &str) -> Option<char> {
+    /// 重新构建 fragment
+    fn rebuild_fragments(&mut self) {
+        self.fragments = Self::str_to_fragments(&self.string);
+    }
+
+    /// 处理替换字符
+    fn get_replacement_character(for_str: &str) -> Option<char> {
         let width = for_str.width();
         match for_str {
             // 空格不用替换
@@ -151,25 +163,17 @@ impl Line {
     
     /// 插入字符
     pub fn insert_char(&mut self, character: char, at: usize) {
-        let mut result = String::new();
-
-        // 遍历当前行内容
-        for (index, fragment) in self.fragments.iter_mut().enumerate() {
-            // 在对应插入位置push到result字符串中
-            if index == at {
-                result.push(character);
-            }
-            // 将原本的东西丢进去
-            result.push_str(&fragment.grapheme);
+        // 尝试检索相应的片段,直接操作string
+        if let Some(fragment) = self.fragments.get(at) {
+            // 根据字素索引插入
+            self.string.insert(fragment.start_byte_idx, character);
+        } else {
+            // 添加到末尾
+            self.string.push(character);
         }
 
-        // 等于或超出末尾就直接push
-        if at >= self.fragments.len() {
-            result.push(character);
-        }
-
-        // 经过后保存
-        self.fragments = Self::str_to_fragments(&result);
+        // 通过rebuild方法将string重新构建成fragments
+        self.rebuild_fragments();
     }
 
     /// 追加字符
@@ -179,18 +183,19 @@ impl Line {
     
     /// 删除指定位置字符
     pub fn delete(&mut self, at: usize) {
-        let mut result = String::new();
-
-        // 遍历当前行内容
-        for (index, fragment) in self.fragments.iter_mut().enumerate() {
-            // 非对应位置的全放进去,及通过忽略对应位置内容来达到删除的效果
-            if index != at {
-                result.push_str(&fragment.grapheme);
-            }
+        // 尝试检索相应的片段,直接操作string
+        if let Some(fragment) = self.fragments.get(at) {
+            // 获取字素开始下标
+            let start = fragment.start_byte_idx;
+            // 根据grapheme 簇长度计算结束下标
+            let end = fragment
+                .start_byte_idx
+                .saturating_add(fragment.grapheme.len());
+            // 通过下标范围移除
+            self.string.drain(start..end);
+            // rebuild重生构建fragments
+            self.rebuild_fragments();
         }
-
-        // 经过后保存
-        self.fragments = Self::str_to_fragments(&result);
     }
 
     /// 删除最后的字符
@@ -198,29 +203,22 @@ impl Line {
         self.delete(self.grapheme_count().saturating_sub(1));
     }
 
-    // 追加内容
+    /// 追加内容
     pub fn append(&mut self, other: &Self) {
-        let mut concat = self.to_string();
-        concat.push_str(&other.to_string());
-        self.fragments = Self::str_to_fragments(&concat);
+        self.string.push_str(&other.string);
+        self.rebuild_fragments();
     }
 
     /// 分隔方法：在指定的图形单元索引处将行分割为两部分。
     pub fn split(&mut self, at: usize) -> Self {
-        // 如果提供的索引超出当前行中图形单元的数量，则返回一个空的新行。
-        if at > self.fragments.len() {
-            return Self::default();
-        }
-
-        // 使用 Vec 的 split_off 方法来获取从 'at' 索引开始的所有片段，
-        // 这个方法会修改原始的 'self.fragments'，使其只包含前 'at' 个片段，
-        // 并返回一个新的 Vec，包含剩余的片段。
-        let remainder = self.fragments.split_off(at);
-
-        // 创建一个新的 Line 实例，并将其 fragments 设置为从原始行中分离出来的片段。
-        // 原始行现在包含了分割点之前的内容，新行包含了分割点之后的内容。
-        Self {
-            fragments: remainder
+        // 尝试检索相应的片段,直接操作string
+        if let Some(fragment) = self.fragments.get(at) {
+            // 分隔后进行rebuild,返回后剩余的
+            let remainder = self.string.split_off(fragment.start_byte_idx);
+            self.rebuild_fragments();
+            Self::from(&remainder)
+        } else {
+            Self::default()
         }
     }
 }
