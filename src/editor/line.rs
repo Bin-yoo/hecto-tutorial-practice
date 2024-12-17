@@ -185,13 +185,13 @@ impl Line {
     pub fn delete(&mut self, at: usize) {
         // 尝试检索相应的片段,直接操作string
         if let Some(fragment) = self.fragments.get(at) {
-            // 获取字素开始下标
+            // 获取字素开始索引
             let start = fragment.start_byte_idx;
-            // 根据grapheme 簇长度计算结束下标
+            // 根据grapheme 簇长度计算结束索引
             let end = fragment
                 .start_byte_idx
                 .saturating_add(fragment.grapheme.len());
-            // 通过下标范围移除
+            // 通过索引范围移除
             self.string.drain(start..end);
             // rebuild重生构建fragments
             self.rebuild_fragments();
@@ -220,6 +220,31 @@ impl Line {
         } else {
             Self::default()
         }
+    }
+
+    /// 将给定的字节索引转换为字素索引
+    fn byte_idx_to_grapheme_idx(&self, byte_idx: usize) -> usize {
+        for (grapheme_idx, fragment) in self.fragments.iter().enumerate() {
+            if fragment.start_byte_idx >= byte_idx {
+                return grapheme_idx;
+            }
+        }
+        #[cfg(debug_assertions)]
+        {
+            panic!("Invalid byte_idx passed to byte_idx_to_grapheme_idx: {byte_idx:?}");
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            0
+        }
+    }
+
+    /// 搜索
+    pub fn search(&self, query: &str) -> Option<usize> {
+        // 获取字符串中对应字符内容的字节索引
+        self.string
+            .find(query)
+            .map(|byte_idx| self.byte_idx_to_grapheme_idx(byte_idx))
     }
 }
 

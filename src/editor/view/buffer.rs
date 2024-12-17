@@ -27,6 +27,20 @@ impl Buffer {
         })
     }
 
+    /// 搜索
+    pub fn search(&self, query: &str) -> Option<Location> {
+        // 确定匹配项的 line index 和 grapheme index并返回
+        for (line_index, line) in self.lines.iter().enumerate() {
+            if let Some(grapheme_index) = line.search(query) {
+                return Some(Location {
+                    grapheme_index,
+                    line_index
+                });
+            }
+        }
+        None
+    }
+
     /// 保存文件内容
     fn save_to_file(&self, file_info: &FileInfo) -> Result<(), Error> {
         if let Some(path) = file_info.get_path() {

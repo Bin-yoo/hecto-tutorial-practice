@@ -320,7 +320,7 @@ impl Editor {
                 self.set_prompt(PromptType::None);
                 self.update_message("Save aborted.");
             }
-            // 保存
+            // 按enter确认保存
             Edit(InsertNewline) => {
                 let file_name = self.command_bar.value();
                 self.save(Some(&file_name));
@@ -354,10 +354,22 @@ impl Editor {
         match command {
             // 忽略无关的操作
             System(Quit | Resize(_) | Search | Save) | Move(_) => {}
-            // 放弃搜索
-            System(Dismiss) | Edit(InsertNewline) => self.set_prompt(PromptType::None),
-            // 命令栏输入
-            Edit(edit_command) => self.command_bar.handle_edit_command(edit_command),
+            // 关闭搜索,回到搜索前的文本位置
+            System(Dismiss) => {
+                self.set_prompt(PromptType::None);
+                self.view.dismiss_search();
+            }
+            // 按Enter时，调用exit_search保留缓冲区中的当前位置。
+            Edit(InsertNewline) => {
+                self.set_prompt(PromptType::None);
+                self.view.exit_search();
+            }
+            // 在命令行输入要搜索的内容,调用搜索
+            Edit(edit_command) => {
+                self.command_bar.handle_edit_command(edit_command);
+                let query = self.command_bar.value();
+                self.view.search(&query);
+            }
         }
     }
 
@@ -388,7 +400,11 @@ impl Editor {
             // 保存提示
             PromptType::Save => self.command_bar.set_prompt("Save as: "),
             // 搜索提示
-            PromptType::Search => self.command_bar.set_prompt("Search: "),
+            PromptType::Search => {
+                // 进入搜索
+                self.view.enter_search();
+                self.command_bar.set_prompt("Search (Esc to cancel): ");
+            }
         }
         self.command_bar.clear_value();
         self.prompt_type = prompt_type;

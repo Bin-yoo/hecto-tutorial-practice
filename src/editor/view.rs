@@ -6,6 +6,11 @@ use fileinfo::FileInfo;
 mod buffer;
 mod fileinfo;
 
+struct SearchInfo {
+    // 进入搜索前的位置
+    prev_location: Location,
+}
+
 #[derive(Copy, Clone, Default)]
 pub struct Location {
     pub grapheme_index: usize,
@@ -24,6 +29,8 @@ pub struct View {
     text_location: Location,
     // view的偏移
     scroll_offset: Position,
+    // 搜索内容
+    search_info: Option<SearchInfo>,
 }
 
 impl View {
@@ -76,6 +83,47 @@ impl View {
     pub const fn is_file_loaded(&self) -> bool {
         self.buffer.is_file_loaded()
     }
+
+    // region: search
+    // 搜索代码区域
+
+    /// 输入搜索
+    pub fn enter_search(&mut self) {
+        // 输入搜索后,存储之前光标所在的位置
+        self.search_info = Some(SearchInfo {
+            prev_location: self.text_location,
+        });
+    }
+
+    /// 退出搜索
+    pub fn exit_search(&mut self) {
+        self.search_info = None;
+    }
+    
+    /// 关闭搜索
+    pub fn dismiss_search(&mut self) {
+        // search_info存有旧位置的信息就回到旧位置那
+        if let Some(search_info) = &self.search_info {
+            self.text_location = search_info.prev_location;
+        }
+        self.search_info = None;
+        self.scroll_text_location_into_view();
+    }
+
+    /// 搜索操作
+    pub fn search(&mut self, query: &str) {
+        if query.is_empty() {
+            return
+        }
+        // 搜索成功则将界面和光标移到对应位置
+        if let Some(location) = self.buffer.search(query) {
+            self.text_location = location;
+            self.scroll_text_location_into_view();
+        }
+    }
+
+    // endregion
+    // 搜索代码区域结束
 
     // region: file i/o
     // 文件io处理代码区域
