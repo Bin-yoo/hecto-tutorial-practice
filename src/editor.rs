@@ -6,7 +6,7 @@ use crossterm::event::{read, Event, KeyEvent, KeyEventKind};
 use self::command::{
 Command::{self, Edit, Move, System},
     Edit::InsertNewline,
-    System::{Dismiss, Quit, Resize, Save}
+    System::{Dismiss, Quit, Resize, Save, Search}
 };
 
 use commandbar::CommandBar;
@@ -38,6 +38,21 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 // 为保持时进行退出操作所需操作次数
 const QUIT_TIMES: u8 = 3;
 
+/// 提示类型枚举
+#[derive(Eq, PartialEq, Default)]
+enum PromptType {
+    Search,
+    Save,
+    #[default]
+    None,
+}
+
+impl PromptType {
+    fn is_none(&self) -> bool {
+        *self == Self::None
+    }
+}
+
 #[derive(Default)]
 pub struct Editor {
     should_quit: bool,
@@ -47,7 +62,10 @@ pub struct Editor {
     // 消息栏
     message_bar: MessageBar,
     // 命令栏
-    command_bar: Option<CommandBar>,
+    command_bar: CommandBar,
+    // 提示类型
+    prompt_type: PromptType,
+    // 终端大小
     terminal_size: Size,
     title: String,
     // 用于跟踪用户尝试退出的次数
@@ -55,6 +73,7 @@ pub struct Editor {
 }
 
 impl Editor {
+    // region: struct lifecycle
 
     /// 创建一个新的 `Editor` 实例。
     pub fn new() -> Result<Self, Error> {
@@ -70,20 +89,17 @@ impl Editor {
         // 初始化编辑器参数
         let mut editor = Self::default();
         let size = Terminal::size().unwrap_or_default();
-        editor.resize(size);
 
+        // 处理大小
+        editor.handle_resize_command(size);
         // 设置编辑器默认消息栏消息
-        editor
-            .message_bar
-            .update_message("HELP: Ctrl-S = save | Ctrl-Q = quit");
+        editor.update_message("HELP: Ctrl-F = find | Ctrl-S = save | Ctrl-Q = quit");
 
         // 处理命令行参数，尝试加载文件
         let args: Vec<String> = env::args().collect();
         if let Some(file_name) = args.get(1) {
             if editor.view.load(file_name).is_err() {
-                editor
-                    .message_bar
-                    .update_message(&format!("ERR: Could not open file: {file_name}"));
+                editor.update_message(&format!("ERR: Could not open file: {file_name}"));
             }
         }
 
@@ -93,43 +109,9 @@ impl Editor {
         Ok(editor)
     }
 
-    /// 调整编辑器大小
-    fn resize(&mut self, size: Size) {
-        self.terminal_size = size;
-        // 空出底部两行给消息栏和状态栏
-        self.view.resize(Size {
-            height: size.height.saturating_sub(2),
-            width: size.width,
-        });
-        self.message_bar.resize(Size {
-            height: 1,
-            width: size.width,
-        });
-        self.status_bar.resize(Size {
-            height: 1,
-            width: size.width,
-        });
+    // endregion
 
-        if let Some(command_bar) = &mut self.command_bar {
-            command_bar.resize(Size {
-                height: 1,
-                width: size.width,
-            });
-        }
-    }
-
-    /// 刷新编辑器状态
-    pub fn refresh_status(&mut self) {
-        // 获取状态,格式化title输出
-        let status = self.view.get_status();
-        let title = format!("{} - {NAME}", status.file_name);
-        // 更新状态栏
-        self.status_bar.update_status(status);
-        // 判断标题是否已更改,并且写入终端成功.则更新editor保存的title
-        if title != self.title && matches!(Terminal::set_title(&title), Ok(())) {
-            self.title = title;
-        }
-    }
+    // region: Event Loop
 
     /// 运行编辑器主循环。
     pub fn run(&mut self) {
@@ -150,13 +132,65 @@ impl Editor {
                     }
                 }
             }
-            // 更新状态栏
-            let status = self.view.get_status();
-            self.status_bar.update_status(status);
+            // 刷新状态
+            self.refresh_status();
         }
     }
 
-    // 判断按键事件
+    /// 刷新屏幕
+    fn refresh_screen(&mut self) {
+        if self.terminal_size.height == 0 || self.terminal_size.width == 0 {
+            return;
+        }
+        // 底部栏位所占高度
+        let bottom_bar_row = self.terminal_size.height.saturating_sub(1);
+        // 在刷新屏幕之前隐藏光标。
+        let _ = Terminal::hide_caret();
+        // 判断是渲染命令栏还是消息栏
+        if self.in_prompt() {
+            self.command_bar.render(bottom_bar_row);
+        } else {
+            self.message_bar.render(bottom_bar_row);
+        }
+        // 渲染状态栏
+        if self.terminal_size.height > 1 {
+            self.status_bar.render(self.terminal_size.height.saturating_sub(2));
+        }
+        // 渲染view
+        if self.terminal_size.height > 2 {
+            self.view.render(0);
+        }
+        // 判断是从命令栏还是view获取光标位置
+        let new_caret_pos = if self.in_prompt() {
+            Position {
+                row: bottom_bar_row,
+                col: self.command_bar.caret_position_col()
+            }
+        } else {
+            self.view.caret_position()
+        };
+        // 移动光标
+        let _ = Terminal::move_caret_to(new_caret_pos);
+        // 完成刷新后显示光标。
+        let _ = Terminal::show_caret();
+        // 输出缓冲区内容
+        let _ = Terminal::execute();
+    }
+
+    /// 刷新编辑器状态
+    pub fn refresh_status(&mut self) {
+        // 获取状态,格式化title输出
+        let status = self.view.get_status();
+        let title = format!("{} - {NAME}", status.file_name);
+        // 更新状态栏
+        self.status_bar.update_status(status);
+        // 判断标题是否已更改,并且写入终端成功.则更新editor保存的title
+        if title != self.title && matches!(Terminal::set_title(&title), Ok(())) {
+            self.title = title;
+        }
+    }
+
+    /// 判断按键事件
     fn evaluate_event(&mut self, event: Event) {
         // 判断是否应该处理该事件
         let should_process = match &event {
@@ -172,85 +206,128 @@ impl Editor {
         }
     }
 
+    // endregion
+
+    // region command handling
+
     /// 处理命令
     fn process_command(&mut self, command: Command) {
-        match command {
-            System(Quit) => {
-                if self.command_bar.is_none() {
-                    self.handle_quit();
-                }
-            },
-            System(Resize(size)) => self.resize(size),
-            // 在进行其他操作后重置累计的退出操作计数
-            _ => self.reset_quit_times(), 
+        if let System(Resize(size)) = command {
+            self.handle_resize_command(size);
+            return;
         }
-        match command {
-            // already handled above
-            System(Quit | Resize(_)) => {}
-            System(Save) => {
-                if self.command_bar.is_none() {
-                    self.handle_save();
-                }
-            },
-            System(Dismiss) => {
-                // 如果存在命令栏（即正处于提示符内）,我们将通过显示 '保存已取消' 的消息来关闭它。
-                if self.command_bar.is_some() {
-                    self.dismiss_prompt();
-                    self.message_bar.update_message("Save aborted.");
-                }
-            },
-            Edit(edit_command) => {
-                // 检查是否有一个活动的命令栏,否则让view来处理编辑的命令
-                if let Some(command_bar) = &mut self.command_bar {
-                    // 如果编辑命令是插入新行(对应操作是Enter回车键),则获取命令栏中的值作为文件名进行保存
-                    // 否则让命令栏来处理编辑的命令
-                    if matches!(edit_command, InsertNewline) {
-                        let file_name = command_bar.value();
-                        self.dismiss_prompt();
-                        self.save(Some(&file_name));
-                    } else {
-                        command_bar.handle_edit_command(edit_command);
-                    }
-                } else {
-                    self.view.handle_edit_command(edit_command);
-                }
-            },
-            Move(move_command) => {
-                if self.command_bar.is_none() {
-                    self.view.handle_move_command(move_command);
-                }
-            }
+        match self.prompt_type {
+            PromptType::Search => self.process_command_during_search(command),
+            PromptType::Save => self.process_command_during_save(command),
+            PromptType::None => self.process_command_no_prompt(command),
         }
     }
 
-    /// 关闭(命令栏)提示
-    fn dismiss_prompt(&mut self) {
-        self.command_bar = None;
-        // 确保消息栏重绘
-        self.message_bar.set_needs_redraw(true);
+    /// 无提示时处理命令
+    fn process_command_no_prompt(&mut self, command: Command) {
+        // 处理退出
+        if matches!(command, System(Quit)) {
+            self.handle_quit_command();
+            return;
+        }
+        // 其他操作就重置退出操作累计次数
+        self.reset_quit_times();
+
+        match command {
+            // 忽略退出和调整大小
+            System(Quit | Resize(_) | Dismiss) => {}
+            // 搜索:设置提示
+            System(Search) => self.set_prompt(PromptType::Search),
+            // 保存
+            System(Save) => self.handle_save_command(),
+            // 编辑
+            Edit(edit_command) => self.view.handle_edit_command(edit_command),
+            // 移动光标
+            Move(move_command) => self.view.handle_move_command(move_command),
+        }
     }
 
-    /// 显示(命令栏)提示
-    fn show_prompt(&mut self) {
-        // 创建新的 CommandBar
-        let mut command_bar = CommandBar::default();
-        // 设置文本提示和尺寸
-        command_bar.set_prompt("Save as: ");
-        command_bar.resize(Size {
-            height: 1,
-            width: self.terminal_size.width,
+    // endregion
+
+    // region resize command handling
+
+    /// 处理调整大小的命令
+    fn handle_resize_command(&mut self, size: Size) {
+        self.terminal_size = size;
+        // 空出底部两行给消息栏和状态栏
+        self.view.resize(Size {
+            height: size.height.saturating_sub(2),
+            width: size.width,
         });
-        // 设置需要重绘
-        command_bar.set_needs_redraw(true);
-        self.command_bar = Some(command_bar);
+        let bar_size = Size {
+            height: 1,
+            width: size.width,
+        };
+        self.message_bar.resize(bar_size);
+        self.status_bar.resize(bar_size);
+        self.command_bar.resize(bar_size);
     }
+
+    // endregion
+
+    // region quit command handling
+
+    /// 处理退出编辑器命令
+    // clippy::arithmetic_side_effects: quit_times is guaranteed to be between 0 and QUIT_TIMES
+    #[allow(clippy::arithmetic_side_effects)]
+    fn handle_quit_command(&mut self) {
+        // 未进行修改或退出操作次数累计达到3次,则设置退出标识为true
+        if !self.view.get_status().is_modified || self.quit_times + 1 == QUIT_TIMES {
+            self.should_quit = true;
+        } else if self.view.get_status().is_modified {
+            // 文件已进行修改,则格式化消息提示更新到消息栏,并累计退出操作次数
+            self.update_message(&format!(
+                "WARNING! File has unsaved changes. Press Ctrl-Q {} more times to quit.",
+                QUIT_TIMES - self.quit_times - 1
+            ));
+            self.quit_times += 1;
+        }
+    }
+
+    /// 重置退出操作次数
+    fn reset_quit_times(&mut self) {
+        if self.quit_times > 0 {
+            self.quit_times = 0;
+            self.update_message("");
+        }
+    }
+
+    // endregion
+
+    // region save command & prompt handling
 
     /// 处理文件保存
-    fn handle_save(&mut self) {
+    fn handle_save_command(&mut self) {
         if self.view.is_file_loaded() {
             self.save(None);
         } else {
-            self.show_prompt();
+            self.set_prompt(PromptType::Save);
+        }
+    }
+
+    /// 处理保存时的命令
+    fn process_command_during_save(&mut self, command: Command) {
+        match command {
+            // 忽略无关的操作
+            System(Quit | Resize(_) | Search | Save) | Move(_) => {}
+            // 丢弃保存操作
+            System(Dismiss) => {
+                self.set_prompt(PromptType::None);
+                self.update_message("Save aborted.");
+            }
+            // 保存
+            Edit(InsertNewline) => {
+                let file_name = self.command_bar.value();
+                self.save(Some(&file_name));
+                self.set_prompt(PromptType::None);
+            }
+            // 命令栏输入
+            Edit(edit_command) => self.command_bar.handle_edit_command(edit_command),
         }
     }
 
@@ -262,76 +339,61 @@ impl Editor {
             self.view.save()
         };
         if result.is_ok() {
-            self.message_bar.update_message("File saved successfully.");
+            self.update_message("File saved successfully.");
         } else {
-            self.message_bar.update_message("Error writing file!");
+            self.update_message("Error writing file!");
         }
     }
 
-    /// 处理退出编辑器
-    // clippy::arithmetic_side_effects: quit_times is guaranteed to be between 0 and QUIT_TIMES
-    #[allow(clippy::arithmetic_side_effects)]
-    fn handle_quit(&mut self) {
-        // 未进行修改或退出操作次数累计达到3次,则设置退出标识为true
-        if !self.view.get_status().is_modified || self.quit_times + 1 == QUIT_TIMES {
-            self.should_quit = true;
-        } else if self.view.get_status().is_modified {
-            // 文件已进行修改,则格式化消息提示更新到消息栏,并累计退出操作次数
-            self.message_bar.update_message(&format!(
-                "WARNING! File has unsaved changes. Press Ctrl-Q {} more times to quit.",
-                QUIT_TIMES - self.quit_times - 1
-            ));
-            self.quit_times += 1;
+    // endregion
+
+    // region search command & prompt handling
+    
+    /// 处理搜索时的命令
+    fn process_command_during_search(&mut self, command: Command) {
+        match command {
+            // 忽略无关的操作
+            System(Quit | Resize(_) | Search | Save) | Move(_) => {}
+            // 放弃搜索
+            System(Dismiss) | Edit(InsertNewline) => self.set_prompt(PromptType::None),
+            // 命令栏输入
+            Edit(edit_command) => self.command_bar.handle_edit_command(edit_command),
         }
     }
 
-    /// 重查退出操作次数
-    fn reset_quit_times(&mut self) {
-        if self.quit_times > 0 {
-            self.quit_times = 0;
-            self.message_bar.update_message("");
-        }
+    // endregion
+
+    // region message & command bar
+    
+    /// 设置消息栏信息
+    fn update_message(&mut self, new_message: &str) {
+        self.message_bar.update_message(new_message);
     }
 
-    // 刷新屏幕
-    fn refresh_screen(&mut self) {
-        if self.terminal_size.height == 0 || self.terminal_size.width == 0 {
-            return;
-        }
-        // 底部栏位所占高度
-        let bottom_bar_row = self.terminal_size.height.saturating_sub(1);
-        // 在刷新屏幕之前隐藏光标。
-        let _ = Terminal::hide_caret();
-        // 判断是渲染命令栏还是消息栏
-        if let Some(command_bar) = &mut self.command_bar {
-            command_bar.render(bottom_bar_row);
-        } else {
-            self.message_bar.render(bottom_bar_row);
-        }
-        // 渲染状态栏
-        if self.terminal_size.height > 1 {
-            self.status_bar.render(self.terminal_size.height.saturating_sub(2));
-        }
-        // 渲染view
-        if self.terminal_size.height > 2 {
-            self.view.render(0);
-        }
-        // 判断是从命令栏还是view获取光标位置
-        let new_caret_pos = if let Some(command_bar) = &self.command_bar {
-            Position {
-                row: bottom_bar_row,
-                col: command_bar.caret_position_col()
-            }
-        } else {
-            self.view.caret_position()
-        };
-        // 移动光标
-        let _ = Terminal::move_caret_to(new_caret_pos);
-        // 完成刷新后显示光标。
-        let _ = Terminal::show_caret();
-        // 输出缓冲区内容
-        let _ = Terminal::execute();
+    // endregion
+
+
+    //region prompt handling
+
+    /// 获取是否有提示
+    fn in_prompt(&self) -> bool {
+        !self.prompt_type.is_none()
     }
+
+    /// 设置提示
+    fn set_prompt(&mut self, prompt_type: PromptType) {
+        match prompt_type {
+            //确保消息栏能在下一个循环周期重绘
+            PromptType::None => self.message_bar.set_needs_redraw(true),
+            // 保存提示
+            PromptType::Save => self.command_bar.set_prompt("Save as: "),
+            // 搜索提示
+            PromptType::Search => self.command_bar.set_prompt("Search: "),
+        }
+        self.command_bar.clear_value();
+        self.prompt_type = prompt_type;
+    }
+    // end region
 
 }
 

@@ -45,6 +45,13 @@ impl CommandBar {
     /// 设置命令栏的提示符
     pub fn set_prompt(&mut self, prompt: &str) {
         self.prompt = prompt.to_string();
+        self.set_needs_redraw(true);
+    }
+
+    /// 清空命令栏的值
+    pub fn clear_value(&mut self) {
+        self.value = Line::default();
+        self.set_needs_redraw(true);
     }
 }
 impl UIComponent for CommandBar {
