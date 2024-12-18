@@ -71,7 +71,7 @@ impl UIComponent for CommandBar {
     fn draw(&mut self, origin: usize) -> Result<(), Error> {
         // 计算用于显示输入值的空间大小，等于终端宽度减去提示符长度。
         let area_for_value = self.size.width.saturating_sub(self.prompt.len());
-        // 获取命令栏值的宽度（以图形符号为单位）。
+        // 获取命令栏值的宽度（以字素为单位）。
         let value_end = self.value.width();
         // 计算要显示的命令栏值的起始位置，确保始终显示值的左侧部分。
         let value_start = value_end.saturating_sub(area_for_value);

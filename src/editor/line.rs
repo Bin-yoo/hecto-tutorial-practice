@@ -41,6 +41,7 @@ pub struct Line {
 
 impl Line {
     pub fn from(line_str: &str) -> Self {
+        debug_assert!(line_str.is_empty() || line_str.lines().count() == 1);
         let fragments = Self::str_to_fragments(line_str);
         Self { 
             fragments,
@@ -169,6 +170,7 @@ impl Line {
     
     /// 插入字符
     pub fn insert_char(&mut self, character: char, at: GraphemeIdx) {
+        debug_assert!(at.saturating_sub(1) <= self.grapheme_count());
         // 尝试检索相应的片段,直接操作string
         if let Some(fragment) = self.fragments.get(at) {
             // 根据字素索引插入
@@ -189,6 +191,7 @@ impl Line {
     
     /// 删除指定位置字符
     pub fn delete(&mut self, at: GraphemeIdx) {
+        debug_assert!(at <= self.grapheme_count());
         // 尝试检索相应的片段,直接操作string
         if let Some(fragment) = self.fragments.get(at) {
             // 获取字素开始索引
@@ -230,31 +233,108 @@ impl Line {
 
     /// 将给定的字节索引转换为字素索引
     fn byte_idx_to_grapheme_idx(&self, byte_idx: ByteIdx) -> GraphemeIdx {
+        debug_assert!(byte_idx <= self.string.len());
         self.fragments
             .iter()
             // position 确保只返回在传递的闭包上返回 true 的第一个元素。
             .position(|fragment| fragment.start_byte_idx >= byte_idx)
-            .map_or(0, |grapheme_idx| grapheme_idx)
+            .map_or_else(
+                || {
+                    #[cfg(debug_assertions)]
+                    {
+                        panic!("Fragment not found for byte index: {byte_idx:?}");
+                    }
+                    #[cfg(not(debug_assertions))]
+                    {
+                        0
+                    }
+                },
+                |grapheme_idx| grapheme_idx,
+            )
     }
 
     /// 将给定的字素索引转换为字节索引
     fn grapheme_idx_to_byte_idx(&self, grapheme_idx: GraphemeIdx) -> ByteIdx {
-        self.fragments
-            .get(grapheme_idx)
-            .map_or(0, |fragment| fragment.start_byte_idx)
+        debug_assert!(grapheme_idx <= self.grapheme_count());
+        if grapheme_idx == 0 || self.grapheme_count() == 0 {
+            return 0;
+        }
+        self.fragments.get(grapheme_idx).map_or_else(
+            || {
+                #[cfg(debug_assertions)]
+                {
+                    panic!("Fragment not found for grapheme index: {grapheme_idx:?}");
+                }
+                #[cfg(not(debug_assertions))]
+                {
+                    0
+                }
+            },
+            |fragment| fragment.start_byte_idx,
+        )
     }
 
-    /// 搜索
-    pub fn search(&self, query: &str, from_grapheme_idx: GraphemeIdx) -> Option<GraphemeIdx> {
+    /// 向下搜索给定查询字符串的位置。
+    ///
+    /// # 参数
+    /// - `query`: 要搜索的字符串。
+    /// - `from_grapheme_idx`: 搜索的起始位置（字素索引）。
+    ///
+    /// # 返回值
+    /// 如果找到匹配项，则返回匹配项的字素索引；否则返回 `None`。
+    ///
+    /// # 逻辑说明
+    /// 该方法从指定位置开始向下搜索，直到字符串末尾，查找第一个出现的匹配项。
+    pub fn search_forward(&self, query: &str, from_grapheme_idx: GraphemeIdx,) -> Option<GraphemeIdx> {
+        // 确保起始位置在有效范围内
+        debug_assert!(from_grapheme_idx <= self.grapheme_count());
+        // 如果起始位置正好是字符串的末尾，则直接返回 None，因为没有更多内容可搜索
+        if from_grapheme_idx == self.grapheme_count() {
+            return None;
+        }
+        // 将字素索引转换为字节索引，用于字符串切片操作
         let start_byte_idx = self.grapheme_idx_to_byte_idx(from_grapheme_idx);
-        // 获取字符串中对应字符内容的字节索引
+        // 获取从起始位置到字符串末尾的子字符串，并进行搜索
         self.string
-            // 从字符串获取开始索引到字符串末尾的子字符串
             .get(start_byte_idx..)
             // 进行搜索
             .and_then(|substr| substr.find(query))
             // 加上前面截断用的索引, 再将对应的字节索引转换为字素索引返回
             .map(|byte_idx| self.byte_idx_to_grapheme_idx(byte_idx.saturating_add(start_byte_idx)))
+    }
+
+    /// 向上搜索给定查询字符串的位置。
+    ///
+    /// # 参数
+    /// - `query`: 要搜索的字符串。
+    /// - `from_grapheme_idx`: 搜索的起始位置（图形符号索引）。
+    ///
+    /// # 返回值
+    /// 如果找到匹配项，则返回匹配项的图形符号索引；否则返回 `None`。
+    ///
+    /// # 逻辑说明
+    /// 该方法从指定位置开始向上搜索，直到字符串开头，查找最后一个出现的匹配项。
+    pub fn search_backward(&self, query: &str, from_grapheme_idx: GraphemeIdx,) -> Option<GraphemeIdx> {
+        // 确保在范围内
+        debug_assert!(from_grapheme_idx <= self.grapheme_count());
+        // 如果起始位置正好是字符串的开头，则直接返回 None，因为没有更多内容可搜索
+        if from_grapheme_idx == 0 {
+            return None;
+        }
+        // 获取结束字节索引：如果起始位置正好是字符串的末尾，则使用整个字符串长度；
+        // 否则，将图形符号索引转换为字节索引
+        let end_byte_index = if from_grapheme_idx == self.grapheme_count() {
+            self.string.len()
+        } else {
+            self.grapheme_idx_to_byte_idx(from_grapheme_idx)
+        };
+        // 获取从字符串开头到结束字节索引的子字符串
+        self.string
+            .get(..end_byte_index)
+            // 查找所有匹配项并取最后一个，实现反向搜索
+            .and_then(|substr| substr.match_indices(query).last())
+            // 将找到的字节索引转换回图形符号索引并返回
+            .map(|(index, _)| self.byte_idx_to_grapheme_idx(index))
     }
 }
 

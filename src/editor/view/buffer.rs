@@ -27,29 +27,98 @@ impl Buffer {
         })
     }
 
-    /// 搜索
-    pub fn search(&self, query: &str, from: Location) -> Option<Location> {
-        // 从当前行搜索到文件底部
-        for (line_index, line) in self.lines.iter().enumerate().skip(from.line_index) {
-            let from_grapheme_idx = if line_index == from.line_index {
-                // 确保我们在当前行从期望的位置开始,及当前字素的行内索引
+    /// 向下搜索给定查询字符串的位置。
+    ///
+    /// # 参数
+    /// - `query`: 要搜索的字符串。
+    /// - `from`: 搜索的起始位置（行索引和字素索引）。
+    ///
+    /// # 返回值
+    /// 如果找到匹配项，则返回匹配项的位置；否则返回 `None`。
+    ///
+    /// # 逻辑说明
+    /// 该方法从指定位置开始向下搜索，直到文档末尾，然后环绕回文档顶部继续搜索，
+    /// 确保当前行被搜索两次（一次从中点开始，一次从行首开始），以捕捉所有可能的匹配。
+    pub fn search_forward(&self, query: &str, from: Location) -> Option<Location> {
+        if query.is_empty() {
+            return None;
+        }
+        // 标记是否是第一次处理当前行
+        let mut is_first = true;
+
+        for (line_index, line) in self
+            .lines
+            .iter()
+            .enumerate()
+            // 遍历文档中的每一行，并允许循环遍历（即当到达最后一行后，继续从第一行开始）
+            .cycle()
+            .skip(from.line_index)
+            // 为了确保当前行被搜索两次（一次从中点开始，一次从行首开始），多取一行
+            .take(self.lines.len().saturating_add(1))
+        {
+            // 确定当前行的起始字素索引：
+            // - 如果是第一次处理当前行，则从 `from.grapheme_index` 开始；
+            // - 否则，从行首（索引为0）开始。
+            let from_grapheme_index = if is_first {
+                is_first = false;
                 from.grapheme_index
             } else {
-                // 其他行都从头开始,及0索引
                 0
             };
-            // 搜素确定匹配项的 line index 和 grapheme index
-            if let Some(grapheme_index) = line.search(query, from_grapheme_idx) {
+
+            // 在当前行中搜索查询字符串，如果找到匹配项，则返回匹配位置。
+            if let Some(grapheme_index) = line.search_forward(query, from_grapheme_index) {
                 return Some(Location {
                     grapheme_index,
-                    line_index
+                    line_index,
                 });
             }
         }
-        // 从文件顶部搜索到当前行(包含当前行)
-        for (line_index, line) in self.lines.iter().enumerate().take(from.line_index){
-            // 在回到顶部之后，我们总是可以从行的开头开始搜索。
-            if let Some(grapheme_index) = line.search(query, 0) {
+        None
+    }
+
+    /// 向上搜索给定查询字符串的位置。
+    ///
+    /// # 参数
+    /// - `query`: 要搜索的字符串。
+    /// - `from`: 搜索的起始位置（行索引和字素索引）。
+    ///
+    /// # 返回值
+    /// 如果找到匹配项，则返回匹配项的位置；否则返回 `None`。
+    ///
+    /// # 逻辑说明
+    /// 该方法从指定位置开始向上搜索，直到文档顶部，然后环绕回文档底部继续搜索，
+    /// 确保当前行被搜索两次（一次从中点开始，一次从行尾开始），以捕捉所有可能的匹配。
+    pub fn search_backward(&self, query: &str, from: Location) -> Option<Location> {
+        if query.is_empty() {
+            return None;
+        }
+        // 标记是否是第一次处理当前行
+        let mut is_first = true;
+
+        for (line_index, line) in self
+            .lines
+            .iter()
+            .enumerate()
+            // 反转迭代器，从最后一行开始向上遍历
+            .rev()
+            .cycle()
+            // 跳过起始位置之后的所有行，并确保不会越界。
+            .skip(self.lines.len().saturating_sub(from.line_index).saturating_sub(1))
+            // 为了确保当前行被搜索两次（一次从中点开始，一次从行尾开始），多取一行
+            .take(self.lines.len().saturating_add(1))
+        {
+            // 确定当前行的起始字素索引：
+            // - 如果是第一次处理当前行，则从 `from.grapheme_index` 开始；
+            // - 否则，从行尾（即最后一个字素索引）开始。
+            let from_grapheme_index = if is_first {
+                is_first = false;
+                from.grapheme_index
+            } else {
+                line.grapheme_count()
+            };
+            // 在当前行中反向搜索查询字符串，如果找到匹配项，则返回匹配位置。
+            if let Some(grapheme_index) = line.search_backward(query, from_grapheme_index) {
                 return Some(Location {
                     grapheme_index,
                     line_index,
@@ -102,9 +171,10 @@ impl Buffer {
 
     // 插入字符
     pub fn insert_char(&mut self, character: char, at: Location) {
-        if at.line_index > self.height() {
-            return;
-        }
+        // if at.line_index > self.height() {
+        //     return;
+        // }
+        debug_assert!(at.line_index <= self.height());
         if at.line_index == self.height() {
             self.lines.push(Line::from(&character.to_string()));
             self.dirty = true;

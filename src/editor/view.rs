@@ -10,6 +10,13 @@ mod fileinfo;
 mod location;
 mod searchinfo;
 
+#[derive(Default, Eq, PartialEq, Clone, Copy)]
+pub enum SearchDirection {
+    #[default]
+    Forward,
+    Backward,
+}
+
 #[derive(Default)]
 pub struct View {
     // 存储文本内容的缓冲区
@@ -86,7 +93,7 @@ impl View {
         self.search_info = Some(SearchInfo {
             prev_location: self.text_location,
             prev_scroll_offset: self.scroll_offset,
-            query: Line::default(),
+            query: None,
         });
     }
 
@@ -99,10 +106,11 @@ impl View {
     pub fn dismiss_search(&mut self) {
         // search_info存有旧位置的信息就回到旧位置那
         if let Some(search_info) = &self.search_info {
-            // 重置文本位置和关闭时的滚动偏移量,并设置需要重绘
+            // 重置文本位置和关闭时的滚动偏移量
             self.text_location = search_info.prev_location;
             self.scroll_offset = search_info.prev_scroll_offset;
-            self.set_needs_redraw(true);
+            // 确保搜索时调整大小了,也能将view显示到对应位置
+            self.scroll_text_location_into_view();
         }
         self.search_info = None;
         self.scroll_text_location_into_view();
@@ -112,58 +120,64 @@ impl View {
     pub fn search(&mut self, query: &str) {
         // 设置搜索内容
         if let Some(search_info) = &mut self.search_info {
-            search_info.query = Line::from(query);
+            search_info.query = Some(Line::from(query));
         }
-        // 使用当前位置调用 search_from
-        self.search_from(self.text_location);
+        // 使用当前位置调用 search_in_direction,默认向下搜索
+        self.search_in_direction(self.text_location, SearchDirection::default());
     }
 
-    /// 从某个位置开始进行搜索
-    fn search_from(&mut self, from: Location) {
-        if let Some(search_info) = self.search_info.as_ref() {
-            // 从search_info取出要搜索的内容
-            let query = &search_info.query;
+    // 尝试获取当前的搜索查询——适用于必须存在搜索查询的场景。
+    // 如果在debug模式下不存在搜索查询或搜索信息，则会触发 panic。
+    // 在生产模式下返回 None。
+    fn get_search_query(&self) -> Option<&Line> {
+        let query = self
+            .search_info
+            .as_ref()
+            .and_then(|search_info| search_info.query.as_ref());
+        debug_assert!(
+            query.is_some(),
+            "Attempting to search with malformed searchinfo present"
+        );
+        query
+    }
+
+    /// 按某个方向开始进行搜索(向上/向下)
+    fn search_in_direction(&mut self, from: Location, direction: SearchDirection) {
+        if let Some(location) = self.get_search_query().and_then(|query| {
+            // 从search_info取出要搜索的内容,判断是向上/向下搜索
             if query.is_empty() {
-                return;
+                None
+            } else if direction == SearchDirection::Forward {
+                self.buffer.search_forward(query, from)
+            } else {
+                self.buffer.search_backward(query, from)
             }
-            // 通过位置进行搜索,如有搜索出来就跳转到相应位置
-            if let Some(location) = self.buffer.search(query, from) {
-                self.text_location = location;
-                // 在搜索结果中设置文本位置，然后将其居中（而不是滚动到该位置）。
-                self.center_text_location();
-            }
-        } else {
-            #[cfg(debug_assertions)]
-            {
-                panic!("Attempting to search_from without search_info");
-            }
-        }
+        })
+        // 查找到就移动到对应位置居中显示
+        {
+            self.text_location = location;
+            self.center_text_location();
+        };
     }
 
     /// 搜索下一个关键词
     pub fn search_next(&mut self) {
-        let step_right;
-        if let Some(search_info) = self.search_info.as_ref() {
-            // 计算字素的宽度,最少都移动1步,避免一直搜索到当前的关键词
-            step_right = min(search_info.query.grapheme_count(), 1);
-        } else {
-            #[cfg(debug_assertions)]
-            {
-                panic!("Attempting to search_next without search_info");
-            }
-            #[cfg(not(debug_assertions))]
-            {
-                return;
-            }
-        }
+        // 计算字素的宽度,最少都移动1步,避免一直搜索到当前的关键词
+        let step_right = self
+            .get_search_query()
+            .map_or(1, |query| min(query.grapheme_count(), 1));
         // 从当前搜索出来的关键词的字素结尾开始,搜索下一个关键词
         let location = Location {
             line_index: self.text_location.line_index,
             grapheme_index: self.text_location.grapheme_index.saturating_add(step_right),
         };
-        self.search_from(location);
+        self.search_in_direction(location, SearchDirection::Forward);
     }
 
+    // 搜索上一个关键词
+    pub fn search_prev(&mut self) {
+        self.search_in_direction(self.text_location, SearchDirection::Backward);
+    }
     // endregion
     // 搜索代码区域结束
 
@@ -364,6 +378,7 @@ impl View {
     // 文本内容位置
     fn text_location_to_position(&self) -> Position {
         let row = self.text_location.line_index;
+        debug_assert!(row.saturating_sub(1) <= self.buffer.lines.len());
         let col = self
             .buffer
             .lines

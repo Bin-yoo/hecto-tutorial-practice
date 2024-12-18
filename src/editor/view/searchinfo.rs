@@ -7,5 +7,5 @@ pub struct SearchInfo {
     // 搜索前view的滚动偏移量
     pub prev_scroll_offset: Position,
     // 搜索内容
-    pub query: Line
+    pub query: Option<Line>
 }
