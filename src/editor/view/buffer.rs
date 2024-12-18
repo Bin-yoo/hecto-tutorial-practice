@@ -28,13 +28,31 @@ impl Buffer {
     }
 
     /// 搜索
-    pub fn search(&self, query: &str) -> Option<Location> {
-        // 确定匹配项的 line index 和 grapheme index并返回
-        for (line_index, line) in self.lines.iter().enumerate() {
-            if let Some(grapheme_index) = line.search(query) {
+    pub fn search(&self, query: &str, from: Location) -> Option<Location> {
+        // 从当前行搜索到文件底部
+        for (line_index, line) in self.lines.iter().enumerate().skip(from.line_index) {
+            let from_grapheme_idx = if line_index == from.line_index {
+                // 确保我们在当前行从期望的位置开始,及当前字素的行内索引
+                from.grapheme_index
+            } else {
+                // 其他行都从头开始,及0索引
+                0
+            };
+            // 搜素确定匹配项的 line index 和 grapheme index
+            if let Some(grapheme_index) = line.search(query, from_grapheme_idx) {
                 return Some(Location {
                     grapheme_index,
                     line_index
+                });
+            }
+        }
+        // 从文件顶部搜索到当前行(包含当前行)
+        for (line_index, line) in self.lines.iter().enumerate().take(from.line_index){
+            // 在回到顶部之后，我们总是可以从行的开头开始搜索。
+            if let Some(grapheme_index) = line.search(query, 0) {
+                return Some(Location {
+                    grapheme_index,
+                    line_index,
                 });
             }
         }

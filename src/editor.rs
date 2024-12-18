@@ -6,6 +6,7 @@ use crossterm::event::{read, Event, KeyEvent, KeyEventKind};
 use self::command::{
 Command::{self, Edit, Move, System},
     Edit::InsertNewline,
+    Move::{Down, Right},
     System::{Dismiss, Quit, Resize, Save, Search}
 };
 
@@ -352,8 +353,6 @@ impl Editor {
     /// 处理搜索时的命令
     fn process_command_during_search(&mut self, command: Command) {
         match command {
-            // 忽略无关的操作
-            System(Quit | Resize(_) | Search | Save) | Move(_) => {}
             // 关闭搜索,回到搜索前的文本位置
             System(Dismiss) => {
                 self.set_prompt(PromptType::None);
@@ -370,6 +369,10 @@ impl Editor {
                 let query = self.command_bar.value();
                 self.view.search(&query);
             }
+            // 在搜索状态左右进行切换已识别的搜索内容
+            Move(Right | Down) => self.view.search_next(),
+            // 忽略无关的操作
+            System(Quit | Resize(_) | Search | Save) | Move(_) => {}
         }
     }
 
@@ -403,7 +406,7 @@ impl Editor {
             PromptType::Search => {
                 // 进入搜索
                 self.view.enter_search();
-                self.command_bar.set_prompt("Search (Esc to cancel): ");
+                self.command_bar.set_prompt("Search (Esc to cancel, Arrows to navigate): ");
             }
         }
         self.command_bar.clear_value();

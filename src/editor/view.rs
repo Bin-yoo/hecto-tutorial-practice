@@ -1,21 +1,14 @@
 use std::{cmp::min, io::Error};
-use super::{command::{Edit, Move}, documentstatus::DocumentStatus, Line, Position, Size, Terminal, UIComponent, NAME, VERSION};
+use super::{command::{Edit, Move}, documentstatus::DocumentStatus, position::{Col, Row}, Line, Position, Size, Terminal, UIComponent, NAME, VERSION};
 use buffer::Buffer;
 use fileinfo::FileInfo;
+use location::Location;
+use searchinfo::SearchInfo;
 
 mod buffer;
 mod fileinfo;
-
-struct SearchInfo {
-    // 进入搜索前的位置
-    prev_location: Location,
-}
-
-#[derive(Copy, Clone, Default)]
-pub struct Location {
-    pub grapheme_index: usize,
-    pub line_index: usize,
-}
+mod location;
+mod searchinfo;
 
 #[derive(Default)]
 pub struct View {
@@ -92,6 +85,8 @@ impl View {
         // 输入搜索后,存储之前光标所在的位置
         self.search_info = Some(SearchInfo {
             prev_location: self.text_location,
+            prev_scroll_offset: self.scroll_offset,
+            query: Line::default(),
         });
     }
 
@@ -104,7 +99,10 @@ impl View {
     pub fn dismiss_search(&mut self) {
         // search_info存有旧位置的信息就回到旧位置那
         if let Some(search_info) = &self.search_info {
+            // 重置文本位置和关闭时的滚动偏移量,并设置需要重绘
             self.text_location = search_info.prev_location;
+            self.scroll_offset = search_info.prev_scroll_offset;
+            self.set_needs_redraw(true);
         }
         self.search_info = None;
         self.scroll_text_location_into_view();
@@ -112,14 +110,58 @@ impl View {
 
     /// 搜索操作
     pub fn search(&mut self, query: &str) {
-        if query.is_empty() {
-            return
+        // 设置搜索内容
+        if let Some(search_info) = &mut self.search_info {
+            search_info.query = Line::from(query);
         }
-        // 搜索成功则将界面和光标移到对应位置
-        if let Some(location) = self.buffer.search(query) {
-            self.text_location = location;
-            self.scroll_text_location_into_view();
+        // 使用当前位置调用 search_from
+        self.search_from(self.text_location);
+    }
+
+    /// 从某个位置开始进行搜索
+    fn search_from(&mut self, from: Location) {
+        if let Some(search_info) = self.search_info.as_ref() {
+            // 从search_info取出要搜索的内容
+            let query = &search_info.query;
+            if query.is_empty() {
+                return;
+            }
+            // 通过位置进行搜索,如有搜索出来就跳转到相应位置
+            if let Some(location) = self.buffer.search(query, from) {
+                self.text_location = location;
+                // 在搜索结果中设置文本位置，然后将其居中（而不是滚动到该位置）。
+                self.center_text_location();
+            }
+        } else {
+            #[cfg(debug_assertions)]
+            {
+                panic!("Attempting to search_from without search_info");
+            }
         }
+    }
+
+    /// 搜索下一个关键词
+    pub fn search_next(&mut self) {
+        let step_right;
+        if let Some(search_info) = self.search_info.as_ref() {
+            // 计算字素的宽度,最少都移动1步,避免一直搜索到当前的关键词
+            step_right = min(search_info.query.grapheme_count(), 1);
+        } else {
+            #[cfg(debug_assertions)]
+            {
+                panic!("Attempting to search_next without search_info");
+            }
+            #[cfg(not(debug_assertions))]
+            {
+                return;
+            }
+        }
+        // 从当前搜索出来的关键词的字素结尾开始,搜索下一个关键词
+        let location = Location {
+            line_index: self.text_location.line_index,
+            grapheme_index: self.text_location.grapheme_index.saturating_add(step_right),
+        };
+        self.search_from(location);
     }
 
     // endregion
@@ -247,7 +289,7 @@ impl View {
     // view滚动代码块
 
     // 垂直滚动
-    fn scroll_vertically(&mut self, to: usize) {
+    fn scroll_vertically(&mut self, to: Row) {
         let Size { height, .. } = self.size;
         let offset_changed = if to < self.scroll_offset.row {
             // 如果目标行小于当前滚动偏移行，更新滚动偏移行
@@ -269,7 +311,7 @@ impl View {
     }
 
     // 水平滚动
-    fn scroll_horizontally(&mut self, to: usize) {
+    fn scroll_horizontally(&mut self, to: Col) {
         let Size { width, .. } = self.size;
         let offset_changed = if to < self.scroll_offset.col {
             // 如果目标列小于当前滚动偏移列，更新滚动偏移列
@@ -295,6 +337,18 @@ impl View {
         self.scroll_vertically(row);
         self.scroll_horizontally(col);
     }
+
+    /// 居中文本位置
+    fn center_text_location(&mut self) {
+        let Size { height, width } = self.size;
+        let Position { row, col } = self.text_location_to_position();
+        // 除法四舍五入
+        let vertical_mid = height.div_ceil(2);
+        let horizontal_mid = width.div_ceil(2);
+        self.scroll_offset.row = row.saturating_sub(vertical_mid);
+        self.scroll_offset.col = col.saturating_sub(horizontal_mid);
+        self.set_needs_redraw(true);
+    }
     // endregion
     // view滚动代码结束
 
@@ -310,10 +364,13 @@ impl View {
     // 文本内容位置
     fn text_location_to_position(&self) -> Position {
         let row = self.text_location.line_index;
-        let col = self.buffer.lines.get(row).map_or(0, |line| {
+        let col = self
+            .buffer
+            .lines
+            .get(row)
             // 获取当前行的图形单元宽度，直到文本位置的图形单元索引
-            line.width_until(self.text_location.grapheme_index)
-        });
+            .map_or(0, |line| line.width_until(self.text_location.grapheme_index));
+
         Position { col, row }
     }
     // endregion
@@ -428,10 +485,9 @@ impl UIComponent for View {
         let Size { height, width } = self.size;
         let end_y = origin_row.saturating_add(height);
 
-        #[allow(clippy::integer_division)]
         // 计算垂直居中的位置，用于显示欢迎信息
         // 它可以稍微偏上一点或偏下一点，因为我们不在乎欢迎信息是否恰好位于正中间。
-        let top_third = height / 3;
+        let top_third = height.div_ceil(3);
         // 获取滚动偏移量
         let scroll_top = self.scroll_offset.row;
         for current_row in origin_row..end_y {

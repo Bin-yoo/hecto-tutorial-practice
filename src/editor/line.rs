@@ -1,13 +1,17 @@
-use std::{fmt, ops::Range};
+use std::{fmt, ops::{Deref, Range}};
 
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
+
+type GraphemeIdx = usize;
+type ByteIdx = usize;
 
 #[derive(Copy, Clone)]
 enum GraphemeWidth {
     Half,
     Full,
 }
+
 impl GraphemeWidth {
     const fn saturating_add(self, other: usize) -> usize {
         match self {
@@ -16,6 +20,8 @@ impl GraphemeWidth {
         }
     }
 }
+
+#[derive(Clone)]
 struct TextFragment {
     // 图形单元的字符串形式
     grapheme: String,
@@ -27,7 +33,7 @@ struct TextFragment {
     start_byte_idx: usize,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Line {
     fragments: Vec<TextFragment>,
     string: String,
@@ -104,7 +110,7 @@ impl Line {
     }
 
     // 获取可展示的内容
-    pub fn get_visible_graphemes(&self, range: Range<usize>) -> String {
+    pub fn get_visible_graphemes(&self, range: Range<GraphemeIdx>) -> String {
         if range.start >= range.end {
             return String::new();
         }
@@ -137,12 +143,12 @@ impl Line {
     }
 
     /// 内容长度
-    pub fn grapheme_count(&self) -> usize {
+    pub fn grapheme_count(&self) -> GraphemeIdx {
         self.fragments.len()
     }
 
     /// 计算宽度
-    pub fn width_until(&self, grapheme_index: usize) -> usize {
+    pub fn width_until(&self, grapheme_index: GraphemeIdx) -> GraphemeIdx {
         // 计算到指定图形单元为止的总宽度
         self.fragments
             .iter()
@@ -157,12 +163,12 @@ impl Line {
     }
 
     /// 获取行宽度
-    pub fn width(&self) -> usize {
+    pub fn width(&self) -> GraphemeIdx {
         self.width_until(self.grapheme_count())
     }
     
     /// 插入字符
-    pub fn insert_char(&mut self, character: char, at: usize) {
+    pub fn insert_char(&mut self, character: char, at: GraphemeIdx) {
         // 尝试检索相应的片段,直接操作string
         if let Some(fragment) = self.fragments.get(at) {
             // 根据字素索引插入
@@ -182,7 +188,7 @@ impl Line {
     }
     
     /// 删除指定位置字符
-    pub fn delete(&mut self, at: usize) {
+    pub fn delete(&mut self, at: GraphemeIdx) {
         // 尝试检索相应的片段,直接操作string
         if let Some(fragment) = self.fragments.get(at) {
             // 获取字素开始索引
@@ -210,7 +216,7 @@ impl Line {
     }
 
     /// 分隔方法：在指定的图形单元索引处将行分割为两部分。
-    pub fn split(&mut self, at: usize) -> Self {
+    pub fn split(&mut self, at: GraphemeIdx) -> Self {
         // 尝试检索相应的片段,直接操作string
         if let Some(fragment) = self.fragments.get(at) {
             // 分隔后进行rebuild,返回后剩余的
@@ -223,28 +229,32 @@ impl Line {
     }
 
     /// 将给定的字节索引转换为字素索引
-    fn byte_idx_to_grapheme_idx(&self, byte_idx: usize) -> usize {
-        for (grapheme_idx, fragment) in self.fragments.iter().enumerate() {
-            if fragment.start_byte_idx >= byte_idx {
-                return grapheme_idx;
-            }
-        }
-        #[cfg(debug_assertions)]
-        {
-            panic!("Invalid byte_idx passed to byte_idx_to_grapheme_idx: {byte_idx:?}");
-        }
-        #[cfg(not(debug_assertions))]
-        {
-            0
-        }
+    fn byte_idx_to_grapheme_idx(&self, byte_idx: ByteIdx) -> GraphemeIdx {
+        self.fragments
+            .iter()
+            // position 确保只返回在传递的闭包上返回 true 的第一个元素。
+            .position(|fragment| fragment.start_byte_idx >= byte_idx)
+            .map_or(0, |grapheme_idx| grapheme_idx)
+    }
+
+    /// 将给定的字素索引转换为字节索引
+    fn grapheme_idx_to_byte_idx(&self, grapheme_idx: GraphemeIdx) -> ByteIdx {
+        self.fragments
+            .get(grapheme_idx)
+            .map_or(0, |fragment| fragment.start_byte_idx)
     }
 
     /// 搜索
-    pub fn search(&self, query: &str) -> Option<usize> {
+    pub fn search(&self, query: &str, from_grapheme_idx: GraphemeIdx) -> Option<GraphemeIdx> {
+        let start_byte_idx = self.grapheme_idx_to_byte_idx(from_grapheme_idx);
         // 获取字符串中对应字符内容的字节索引
         self.string
-            .find(query)
-            .map(|byte_idx| self.byte_idx_to_grapheme_idx(byte_idx))
+            // 从字符串获取开始索引到字符串末尾的子字符串
+            .get(start_byte_idx..)
+            // 进行搜索
+            .and_then(|substr| substr.find(query))
+            // 加上前面截断用的索引, 再将对应的字节索引转换为字素索引返回
+            .map(|byte_idx| self.byte_idx_to_grapheme_idx(byte_idx.saturating_add(start_byte_idx)))
     }
 }
 
@@ -256,5 +266,13 @@ impl fmt::Display for Line {
             .map(|fragment| fragment.grapheme.clone())
             .collect();
         write!(formatter, "{result}")
+    }
+}
+
+// 实现Deref trait,让它可以像指针一样解引用
+impl Deref for Line {
+    type Target = str;
+    fn deref(&self) -> &Self::Target {
+        &self.string
     }
 }
