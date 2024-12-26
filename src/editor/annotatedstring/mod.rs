@@ -3,6 +3,8 @@ use std::{
     fmt::{self, Display},
 };
 
+use super::ByteIdx;
+
 pub use annotationtype::AnnotationType;
 use annotation::Annotation;
 use annotatedstringpart::AnnotatedStringPart;
@@ -33,43 +35,53 @@ impl AnnotatedString {
     pub fn add_annotation(
         &mut self,
         annotation_type: AnnotationType,
-        start_byte_idx: usize,
-        end_byte_idx: usize,
+        start: ByteIdx,
+        end: ByteIdx,
     ) {
-        debug_assert!(start_byte_idx <= end_byte_idx);
+        debug_assert!(start <= end);
         self.annotations.push(Annotation {
             annotation_type,
-            start_byte_idx,
-            end_byte_idx,
+            start,
+            end,
         });
+    }
+
+    /// 清空对应字节索引左侧字符内容
+    pub fn truncate_left_until(&mut self, until: ByteIdx) {
+        self.replace(0, until, "");
+    }
+
+    /// 清空对应字节索引右侧字符内容
+    pub fn truncate_right_from(&mut self, from: ByteIdx) {
+        self.replace(from, self.string.len(), "");
     }
 
     /// 替换注释
     ///
     /// # 参数
-    /// - `start_byte_idx`: 替换起始的字节索引。
-    /// - `end_byte_idx`: 替换结束的字节索引。
+    /// - `start`: 替换起始的字节索引。
+    /// - `end`: 替换结束的字节索引。
     /// - `new_string`: 新的替换字符串。
     ///
     /// # 功能
     /// 该方法会用新的字符串替换指定范围内的内容，并相应地调整所有注释的索引。
-    pub fn replace(&mut self, start_byte_idx: usize, end_byte_idx: usize, new_string: &str) {
-        // 断言：确保起始索引不超过结束索引
-        debug_assert!(start_byte_idx <= end_byte_idx);
-
+    pub fn replace(&mut self, start: ByteIdx, end: ByteIdx, new_string: &str) {
         // 确保结束索引不会超出字符串长度
-        let end_byte_idx = min(end_byte_idx, self.string.len());
+        let end = min(end, self.string.len());
+        // 断言：确保起始索引不超过结束索引和字符串长度
+        debug_assert!(start <= end);
+        debug_assert!(start <= self.string.len());
 
         // 如果起始索引大于结束索引，则直接返回（无效范围）
-        if start_byte_idx > end_byte_idx {
+        if start > end {
             return;
         }
 
         // 执行实际的字符串替换操作
-        self.string.replace_range(start_byte_idx..end_byte_idx, new_string);
+        self.string.replace_range(start..end, new_string);
 
         // 计算被替换范围的长度
-        let replaced_range_len = end_byte_idx.saturating_sub(start_byte_idx);
+        let replaced_range_len = end.saturating_sub(start);
 
         // 计算新字符串与原范围长度的差异
         let len_difference = new_string.len().abs_diff(replaced_range_len);
@@ -85,62 +97,49 @@ impl AnnotatedString {
         // 遍历并调整每个注释的索引
         self.annotations.iter_mut().for_each(|annotation| {
             // 调整注释的起始索引
-            annotation.start_byte_idx = if annotation.start_byte_idx >= end_byte_idx {
+            annotation.start = if annotation.start >= end {
                 // 对于在替换范围之后开始的注释，根据新旧长度差异调整索引
                 if shortened {
-                    annotation.start_byte_idx.saturating_sub(len_difference)
+                    annotation.start.saturating_sub(len_difference)
                 } else {
-                    annotation.start_byte_idx.saturating_add(len_difference)
+                    annotation.start.saturating_add(len_difference)
                 }
-            } else if annotation.start_byte_idx >= start_byte_idx {
+            } else if annotation.start >= start {
                 // 对于在替换范围内开始的注释，根据新旧长度差异调整索引，并限制在替换范围边界内
                 if shortened {
-                    max(
-                        start_byte_idx,
-                        annotation.start_byte_idx.saturating_sub(len_difference),
-                    )
+                    max(start, annotation.start.saturating_sub(len_difference))
                 } else {
-                    min(
-                        end_byte_idx,
-                        annotation.start_byte_idx.saturating_add(len_difference),
-                    )
+                    min(end, annotation.start.saturating_add(len_difference))
                 }
             } else {
                 // 不需要调整
-                annotation.start_byte_idx
+                annotation.start
             };
 
             // 调整注释的结束索引
-            annotation.end_byte_idx = if annotation.end_byte_idx >= end_byte_idx {
+            annotation.end = if annotation.end >= end {
                 // 对于在替换范围之后结束的注释，根据新旧长度差异调整索引
                 if shortened {
-                    annotation.end_byte_idx.saturating_sub(len_difference)
+                    annotation.end.saturating_sub(len_difference)
                 } else {
-                    annotation.end_byte_idx.saturating_add(len_difference)
+                    annotation.end.saturating_add(len_difference)
                 }
-            } else if annotation.end_byte_idx >= start_byte_idx {
+            } else if annotation.end >= start {
                 // 对于在替换范围内结束的注释，根据新旧长度差异调整索引，并限制在替换范围边界内
                 if shortened {
-                    max(
-                        start_byte_idx,
-                        annotation.end_byte_idx.saturating_sub(len_difference),
-                    )
+                    max(start, annotation.end.saturating_sub(len_difference))
                 } else {
-                    min(
-                        end_byte_idx,
-                        annotation.end_byte_idx.saturating_add(len_difference),
-                    )
+                    min(end, annotation.end.saturating_add(len_difference))
                 }
             } else {
                 // 不需要调整
-                annotation.end_byte_idx
+                annotation.end
             }
         });
 
         // 过滤掉无效的注释（即空注释或超出字符串长度的注释）
         self.annotations.retain(|annotation| {
-            annotation.start_byte_idx < annotation.end_byte_idx
-                && annotation.start_byte_idx < self.string.len()
+            annotation.start < annotation.end && annotation.start < self.string.len()
         });
     }
 }

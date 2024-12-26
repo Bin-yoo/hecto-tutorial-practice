@@ -1,3 +1,4 @@
+use crate::prelude::*;
 use super::AnnotationType;
 
 /// 注释/标注
@@ -8,7 +9,7 @@ pub struct Annotation {
     // 注释/标注类型
     pub annotation_type: AnnotationType,
     // 开始字节索引
-    pub start_byte_idx: usize,
+    pub start: ByteIdx,
     // 结束字节索引
-    pub end_byte_idx: usize,
+    pub end: ByteIdx,
 }

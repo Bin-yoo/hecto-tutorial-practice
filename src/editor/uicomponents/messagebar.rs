@@ -1,9 +1,7 @@
+use crate::prelude::*;
 use std::{io::Error, time::{Duration, Instant}};
 use super::UIComponent;
-use super::super::{
-    Terminal,
-    Size
-};
+use super::super::Terminal;
 
 const DEFAULT_DURATION: Duration = Duration::new(5, 0);
 
@@ -61,7 +59,7 @@ impl UIComponent for MessageBar {
 
     fn set_size(&mut self, _: Size) {}
 
-    fn draw(&mut self, origin: usize) -> Result<(), Error> {
+    fn draw(&mut self, origin: RowIdx) -> Result<(), Error> {
         // 如果过期了，需要写入一次空字符串 "" 来清除消息。
         // 为了避免清除不必要的内容，需要记录下已经清除过期消息。
         if self.current_message.is_expired() {

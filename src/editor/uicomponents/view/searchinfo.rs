@@ -1,5 +1,5 @@
-use crate::editor::{Line, Position};
-use super::Location;
+use crate::editor::Line;
+use crate::prelude::*;
 
 pub struct SearchInfo {
     // 搜索前光标所在文本位置

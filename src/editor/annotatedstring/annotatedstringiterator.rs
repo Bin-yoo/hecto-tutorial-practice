@@ -1,3 +1,5 @@
+use crate::prelude::*;
+
 use std::cmp::min;
 use super::{AnnotatedString, AnnotatedStringPart};
 
@@ -9,7 +11,7 @@ use super::{AnnotatedString, AnnotatedStringPart};
 pub struct AnnotatedStringIterator<'a> {
     // 使用'a生命周期，声明对 AnnotatedString 的引用的生命周期至少应该与 Iterator 本身一样长。
     pub annotated_string: &'a AnnotatedString,
-    pub current_idx: usize,
+    pub current_idx: ByteIdx,
 }
 
 // 实现带生命周期的迭代器trait
@@ -28,13 +30,12 @@ impl<'a> Iterator for AnnotatedStringIterator<'a> {
             .annotations
             .iter()
             .filter(|annotation| {
-                annotation.start_byte_idx <= self.current_idx
-                    && annotation.end_byte_idx > self.current_idx
+                annotation.start <= self.current_idx && annotation.end > self.current_idx
             })
             .last()
         {
             // 确定注释的结束位置，并确保不超过字符串长度
-            let end_idx = min(annotation.end_byte_idx, self.annotated_string.string.len());
+            let end_idx = min(annotation.end, self.annotated_string.string.len());
             let start_idx = self.current_idx;
 
             // 更新当前索引到注释的结束位置
@@ -49,8 +50,8 @@ impl<'a> Iterator for AnnotatedStringIterator<'a> {
         // 如果没有找到有效注释，则查找最近的注释边界
         let mut end_idx = self.annotated_string.string.len();
         for annotation in &self.annotated_string.annotations {
-            if annotation.start_byte_idx > self.current_idx && annotation.start_byte_idx < end_idx {
-                end_idx = annotation.start_byte_idx;
+            if annotation.start > self.current_idx && annotation.start < end_idx {
+                end_idx = annotation.start;
             }
         }
 

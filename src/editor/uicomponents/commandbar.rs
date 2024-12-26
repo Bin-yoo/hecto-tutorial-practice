@@ -1,5 +1,6 @@
 use std::{cmp::min, io::Error};
-use super::super::{command::Edit, line::Line, Size, Terminal};
+use crate::prelude::*;
+use super::super::{command::Edit, line::Line, Terminal};
 use super::UIComponent;
 
 #[derive(Default)]
@@ -29,7 +30,7 @@ impl CommandBar {
     /// 插入符号的 x 位置（它所在的列）是输入内容宽度加上提示符的长度，
     /// 假设 `self.prompt` 仅由 ASCII 字符组成。或者它是终端的宽度（即终端的最右侧），
     /// 取两者中的较小值。
-    pub fn caret_position_col(&self) -> usize {
+    pub fn caret_position_col(&self) -> ColIdx {
         
         let max_width = self
             .prompt
@@ -69,7 +70,7 @@ impl UIComponent for CommandBar {
         self.size = size;
     }
 
-    fn draw(&mut self, origin: usize) -> Result<(), Error> {
+    fn draw(&mut self, origin: RowIdx) -> Result<(), Error> {
         // 计算用于显示输入值的空间大小，等于终端宽度减去提示符长度。
         let area_for_value = self.size.width.saturating_sub(self.prompt.len());
         // 获取命令栏值的宽度（以字素为单位）。

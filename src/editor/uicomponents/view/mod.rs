@@ -1,15 +1,15 @@
 use std::{cmp::min, io::Error};
-use super::super::{command::{Edit, Move}, DocumentStatus, Col, Row, Line, Position, Size, Terminal, NAME, VERSION};
+use crate::prelude::*;
+
+use super::super::{command::{Edit, Move}, DocumentStatus, Line, Terminal};
 use super::UIComponent;
 use buffer::Buffer;
 use fileinfo::FileInfo;
-use location::Location;
 use searchinfo::SearchInfo;
 use searchdirection::SearchDirection;
 
 mod buffer;
 mod fileinfo;
-mod location;
 mod searchinfo;
 mod searchdirection;
 
@@ -109,9 +109,7 @@ impl View {
             // 确保搜索时调整大小了,也能将view显示到对应位置
             self.scroll_text_location_into_view();
         }
-        self.search_info = None;
-        self.scroll_text_location_into_view();
-        self.set_needs_redraw(true);
+        self.exit_search();
     }
 
     /// 搜索操作
@@ -270,7 +268,7 @@ impl View {
     /// - `line_text`: 要渲染的文本内容。
     ///
     /// 清除指定行的内容，将文本渲染到该终端行。
-    fn render_line(at: usize, line_text: &str) -> Result<(), Error> {
+    fn render_line(at: RowIdx, line_text: &str) -> Result<(), Error> {
         Terminal::print_row(at, line_text)
     }
 
@@ -303,7 +301,7 @@ impl View {
     // view滚动代码块
 
     // 垂直滚动
-    fn scroll_vertically(&mut self, to: Row) {
+    fn scroll_vertically(&mut self, to: RowIdx) {
         let Size { height, .. } = self.size;
         let offset_changed = if to < self.scroll_offset.row {
             // 如果目标行小于当前滚动偏移行，更新滚动偏移行
@@ -325,7 +323,7 @@ impl View {
     }
 
     // 水平滚动
-    fn scroll_horizontally(&mut self, to: Col) {
+    fn scroll_horizontally(&mut self, to: ColIdx) {
         let Size { width, .. } = self.size;
         let offset_changed = if to < self.scroll_offset.col {
             // 如果目标列小于当前滚动偏移列，更新滚动偏移列
@@ -496,7 +494,7 @@ impl UIComponent for View {
         self.scroll_text_location_into_view();
     }
 
-    fn draw(&mut self, origin_row: usize) -> Result<(), Error> {
+    fn draw(&mut self, origin_row: RowIdx) -> Result<(), Error> {
         let Size { height, width } = self.size;
         let end_y = origin_row.saturating_add(height);
 

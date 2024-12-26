@@ -1,8 +1,8 @@
+use crate::prelude::*;
 use crossterm::event::{
     KeyCode::{self, Char},
     KeyEvent, KeyModifiers,
 };
-use super::super::Size;
 
 /// 系统操作(如保存/退出/调整终端大小)
 #[derive(Clone, Copy)]

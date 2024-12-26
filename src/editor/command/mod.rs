@@ -1,7 +1,7 @@
+use crate::prelude::*;
 use crossterm::event::Event;
 use std::convert::TryFrom;
 
-use super::Size;
 pub use edit::Edit;
 pub use movecommand::Move;
 pub use system::System;

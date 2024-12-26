@@ -1,7 +1,7 @@
 use std::{fs::{read_to_string, File}, io::{Error, Write}};
 use super::FileInfo;
 use super::Line;
-use super::Location;
+use crate::prelude::*;
 
 #[derive(Default)]
 pub struct Buffer {

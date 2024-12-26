@@ -1,3 +1,4 @@
+use crate::prelude::*;
 use std::env;
 use std::io::Error;
 use std::panic::{set_hook, take_hook};
@@ -12,8 +13,6 @@ use command::{
 
 use terminal::Terminal;
 use uicomponents::{CommandBar,MessageBar,View, StatusBar, UIComponent};
-use position::{Col, Position, Row};
-use size::Size;
 use line::Line;
 use documentstatus::DocumentStatus;
 use annotatedstring::{AnnotatedString, AnnotationType};
@@ -24,11 +23,6 @@ mod command;
 mod uicomponents;
 mod documentstatus;
 mod line;
-mod position;
-mod size;
-
-pub const NAME: &str = env!("CARGO_PKG_NAME");
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // 为保持时进行退出操作所需操作次数
 const QUIT_TIMES: u8 = 3;
