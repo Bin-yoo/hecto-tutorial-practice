@@ -1,21 +1,17 @@
 use std::{cmp::min, io::Error};
-use super::{command::{Edit, Move}, documentstatus::DocumentStatus, position::{Col, Row}, Line, Position, Size, Terminal, UIComponent, NAME, VERSION};
+use super::super::{command::{Edit, Move}, DocumentStatus, Col, Row, Line, Position, Size, Terminal, NAME, VERSION};
+use super::UIComponent;
 use buffer::Buffer;
 use fileinfo::FileInfo;
 use location::Location;
 use searchinfo::SearchInfo;
+use searchdirection::SearchDirection;
 
 mod buffer;
 mod fileinfo;
 mod location;
 mod searchinfo;
-
-#[derive(Default, Eq, PartialEq, Clone, Copy)]
-pub enum SearchDirection {
-    #[default]
-    Forward,
-    Backward,
-}
+mod searchdirection;
 
 #[derive(Default)]
 pub struct View {
@@ -100,6 +96,7 @@ impl View {
     /// 退出搜索
     pub fn exit_search(&mut self) {
         self.search_info = None;
+        self.set_needs_redraw(true);
     }
     
     /// 关闭搜索
@@ -114,6 +111,7 @@ impl View {
         }
         self.search_info = None;
         self.scroll_text_location_into_view();
+        self.set_needs_redraw(true);
     }
 
     /// 搜索操作
@@ -158,6 +156,8 @@ impl View {
             self.text_location = location;
             self.center_text_location();
         };
+
+        self.set_needs_redraw(true);
     }
 
     /// 搜索下一个关键词
@@ -517,7 +517,20 @@ impl UIComponent for View {
             if let Some(line) = self.buffer.lines.get(line_idx) {
                 let left = self.scroll_offset.col;
                 let right = self.scroll_offset.col.saturating_add(width);
-                Self::render_line(current_row, &line.get_visible_graphemes(left..right))?;
+                // 获取想要查询的内容
+                let query = self.search_info
+                    .as_ref()
+                    .and_then(|search_info| search_info.query.as_deref());
+                // 判断是不是插入符号所在的行，以及是否有查询
+                // 有就返回Some(字素索引), 否则返回None
+                let selected_match = (self.text_location.line_index == line_idx && query.is_some())
+                    .then_some(self.text_location.grapheme_index);
+                // 渲染行
+                Terminal::print_annotated_row(
+                    current_row,
+                    // 根据参数获取带注释的字符串
+                    &line.get_annotated_visible_substr(left..right, query, selected_match),
+                )?;
             } else if current_row == top_third && self.buffer.is_empty() {
                 // 如果当前行是垂直居中的位置且缓冲区为空，显示欢迎信息
                 Self::render_line(current_row, &Self::build_welcome_message(width))?;

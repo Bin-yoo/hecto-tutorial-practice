@@ -3,33 +3,27 @@ use std::io::Error;
 use std::panic::{set_hook, take_hook};
 use crossterm::event::{read, Event, KeyEvent, KeyEventKind};
 
-use self::command::{
-Command::{self, Edit, Move, System},
+use command::{
+    Command::{self, Edit, Move, System},
     Edit::InsertNewline,
     Move::{Down, Left, Right, Up},
     System::{Dismiss, Quit, Resize, Save, Search}
 };
 
-use commandbar::CommandBar;
-use messagebar::MessageBar;
-use statusbar::StatusBar;
 use terminal::Terminal;
-use uicomponent::UIComponent;
-use view::View;
-use position::Position;
+use uicomponents::{CommandBar,MessageBar,View, StatusBar, UIComponent};
+use position::{Col, Position, Row};
 use size::Size;
 use line::Line;
 use documentstatus::DocumentStatus;
+use annotatedstring::{AnnotatedString, AnnotationType};
 
+mod annotatedstring;
 mod terminal;
-mod view;
 mod command;
-mod statusbar;
-mod messagebar;
-mod uicomponent;
+mod uicomponents;
 mod documentstatus;
 mod line;
-mod commandbar;
 mod position;
 mod size;
 

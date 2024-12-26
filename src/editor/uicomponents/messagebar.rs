@@ -1,7 +1,7 @@
 use std::{io::Error, time::{Duration, Instant}};
-use super::{
+use super::UIComponent;
+use super::super::{
     Terminal,
-    UIComponent,
     Size
 };
 

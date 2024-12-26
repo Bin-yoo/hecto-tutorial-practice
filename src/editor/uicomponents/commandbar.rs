@@ -1,5 +1,6 @@
 use std::{cmp::min, io::Error};
-use super::{command::Edit, line::Line, Size, Terminal, UIComponent};
+use super::super::{command::Edit, line::Line, Size, Terminal};
+use super::UIComponent;
 
 #[derive(Default)]
 pub struct CommandBar {

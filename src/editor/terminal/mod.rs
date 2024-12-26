@@ -1,10 +1,17 @@
 use crossterm::cursor::{Hide, MoveTo, Show};
 use crossterm::{queue, Command};
-use crossterm::style::{Attribute, Print};
+use crossterm::style::{
+    Attribute::{Reset, Reverse},
+    Print, ResetColor, SetBackgroundColor, SetForegroundColor,
+};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, size, Clear, ClearType, DisableLineWrap, EnableLineWrap, EnterAlternateScreen, LeaveAlternateScreen, SetTitle};
 use std::io::{stdout, Error, Write};
 
-use super::{Position, Size};
+use super::{Position, Size, AnnotatedString};
+
+use attribute::Attribute;
+
+mod attribute;
 
 /// 表示终端。
 /// 平台边缘情况处理：当 `usize` < `u16` 时：
@@ -117,22 +124,49 @@ impl Terminal {
         Ok(())
     }
 
+    /// 打印注释行
+    pub fn print_annotated_row(row: usize, annotated_string: &AnnotatedString,) -> Result<(), Error> {
+        // 移动光标到对应行,并清除整行内容
+        Self::move_caret_to(Position { row, col: 0 })?;
+        Self::clear_line()?;
+        // 打印
+        annotated_string
+            .into_iter()
+            .try_for_each(|part| -> Result<(), Error> {
+                // 如果有标注就设置对应颜色打印
+                if let Some(annotation_type) = part.annotation_type {
+                    let attribute: Attribute = annotation_type.into();
+                    Self::set_attribute(&attribute)?;
+                }
+                Self::print(part.string)?;
+                // 打印完成后重置颜色
+                Self::reset_color()?;
+                Ok(())
+            })?;
+        Ok(())
+    }
+
+    /// 设置终端属性(颜色)
+    fn set_attribute(attribute: &Attribute) -> Result<(), Error> {
+        if let Some(foreground_color) = attribute.foreground {
+            Self::queue_command(SetForegroundColor(foreground_color))?;
+        }
+        if let Some(background_color) = attribute.background {
+            Self::queue_command(SetBackgroundColor(background_color))?;
+        }
+        Ok(())
+    }
+
+    /// 重置颜色
+    fn reset_color() -> Result<(), Error> {
+        Self::queue_command(ResetColor)?;
+        Ok(())
+    }
+
     /// 在指定行打印颜色反转的文本
     pub fn print_inverted_row(row: usize, line_text: &str) -> Result<(), Error> {
         let width = Self::size()?.width;
-        Self::print_row(
-            row,
-            &format!(
-                // 使用宽度填充并确保文本符合终端宽度
-                "{}{:width$.width$}{}",
-                // 开始反转颜色
-                Attribute::Reverse,
-                // 实际要显示的文本
-                line_text,
-                // 结束反转颜色，恢复默认样式
-                Attribute::Reset
-            ),
-        )
+        Self::print_row(row, &format!("{Reverse}{line_text:width$.width$}{Reset}"))
     }
 
     /// 打印

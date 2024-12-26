@@ -1,5 +1,5 @@
 use std::io::Error;
-use super::Size;
+use super::super::Size;
 
 /// 定义ui组件行为方法的trait
 pub trait UIComponent {

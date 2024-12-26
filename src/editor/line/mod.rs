@@ -1,37 +1,18 @@
-use std::{fmt, ops::{Deref, Range}};
+use std::{fmt::{self, Display}, ops::{Deref, Range}};
 
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
+use graphemewidth::GraphemeWidth;
+use textfragment::TextFragment;
+
+use super::{AnnotatedString, AnnotationType, Col};
+
+mod graphemewidth;
+mod textfragment;
 
 type GraphemeIdx = usize;
 type ByteIdx = usize;
-
-#[derive(Copy, Clone)]
-enum GraphemeWidth {
-    Half,
-    Full,
-}
-
-impl GraphemeWidth {
-    const fn saturating_add(self, other: usize) -> usize {
-        match self {
-            Self::Half => other.saturating_add(1),
-            Self::Full => other.saturating_add(2),
-        }
-    }
-}
-
-#[derive(Clone)]
-struct TextFragment {
-    // 图形单元的字符串形式
-    grapheme: String,
-    // 渲染宽度
-    rendered_width: GraphemeWidth,
-    // 替换字符（如果有）
-    replacement: Option<char>,
-    // 字素字节索引
-    start_byte_idx: usize,
-}
+type ColIdx = usize;
 
 #[derive(Default, Clone)]
 pub struct Line {
@@ -110,36 +91,119 @@ impl Line {
         }
     }
 
-    // 获取可展示的内容
-    pub fn get_visible_graphemes(&self, range: Range<GraphemeIdx>) -> String {
+    /// 根据列索引获取可展示的内容
+    pub fn get_visible_graphemes(&self, range: Range<ColIdx>) -> String {
+        self.get_annotated_visible_substr(range, None, None).to_string()
+    }
+
+    /// 获取给定列索引范围内的带注释字符串。
+    ///
+    /// 注意：列索引不同于图形符号索引：
+    /// - 一个图形符号可以占用2个列宽。
+    ///
+    /// # 参数
+    /// - `range`: 获取带注释字符串的列索引范围。
+    /// - `query`: 要高亮显示在带注释字符串中的查询字符串。
+    /// - `selected_match`: 要高亮显示在带注释字符串中的选定匹配项。仅在查询字符串不为空时应用。
+    ///
+    /// # 返回值
+    /// 返回一个带注释的字符串 (`AnnotatedString`)。
+    pub fn get_annotated_visible_substr(
+        &self,
+        range: Range<ColIdx>,
+        query: Option<&str>,
+        selected_match: Option<GraphemeIdx>,
+    ) -> AnnotatedString {
+        // 如果起始列索引大于或等于结束列索引，则返回默认的空带注释字符串
         if range.start >= range.end {
-            return String::new();
+            return AnnotatedString::default();
         }
 
-        let mut result = String::new();
-        let mut current_pos = 0;
-        for fragment in &self.fragments {
-            // 计算图形单元的结束位置
-            let fragment_end = fragment.rendered_width.saturating_add(current_pos);
-            // 如果当前位置超过范围结束位置，停止遍历
-            if current_pos >= range.end {
-                break;
+        // 创建一个新的带注释字符串
+        let mut result = AnnotatedString::from(&self.string);
+
+        // 根据搜索结果对字符串进行注释
+        if let Some(query) = query {
+            if !query.is_empty() {
+                // 查找所有匹配项，并为每个匹配项添加注释
+                self.find_all(query, 0..self.string.len()).iter().for_each(
+                    |(start_byte_idx, grapheme_idx)| {
+                        if let Some(selected_match) = selected_match {
+                            if *grapheme_idx == selected_match {
+                                // 如果是选定匹配项，则使用特殊注释类型（SelectedMatch）
+                                result.add_annotation(
+                                    AnnotationType::SelectedMatch,
+                                    *start_byte_idx,
+                                    start_byte_idx.saturating_add(query.len()),
+                                );
+                                return;
+                            }
+                        }
+                        // 否则使用普通匹配注释类型（Match）
+                        result.add_annotation(
+                            AnnotationType::Match,
+                            *start_byte_idx,
+                            start_byte_idx.saturating_add(query.len()),
+                        );
+                    },
+                );
             }
-            // 确定当前图形单元是否部分或全部在指定范围内
-            if fragment_end > range.start {
-                if fragment_end > range.end || current_pos < range.start {
-                    // 超出的截断展示...
-                    result.push('⋯');
-                } else if let Some(char) = fragment.replacement {
-                    // 有替换字符的展示替换字符
-                    result.push(char);
-                } else {
-                    // 否则使用图形单元本身
-                    result.push_str(&fragment.grapheme);
+        }
+
+        // 插入替换字符，并根据需要截断字符串。
+        // 反向处理是为了确保在替换字符宽度不同的情况下，字节索引仍然正确。
+
+        // 因为要反向处理，所以开始位置初始设置为总宽度
+        let mut fragment_start = self.width(); 
+        for fragment in self.fragments.iter().rev() {
+            // 将片段的结尾设置为fragment_start
+            let fragment_end = fragment_start;
+            // 减去片段渲染长度,计算出该片段的开始位置
+            fragment_start = fragment_start.saturating_sub(fragment.rendered_width.into());
+
+            // 如果当前片段尚未进入可见范围，则跳过处理
+            if fragment_start > range.end {
+                continue;
+            }
+
+            // 如果片段部分可见（右边缘超出范围），则用省略号替换
+            if fragment_start < range.end && fragment_end > range.end {
+                result.replace(fragment.start_byte_idx, self.string.len(), "⋯");
+                continue;
+            } else if fragment_start == range.end {
+                // 如果正好到达可见范围的末尾，则截断右侧
+                result.replace(fragment.start_byte_idx, self.string.len(), "");
+                continue;
+            }
+
+            // 如果片段的右边缘小于可见范围的起始位置，则移除左侧
+            if fragment_end <= range.start {
+                result.replace(
+                    0,
+                    fragment.start_byte_idx.saturating_add(fragment.grapheme.len()),
+                    "",
+                );
+                break; // 剩余片段都不可见，结束处理
+            } else if fragment_start < range.start && fragment_end > range.start {
+                // 如果片段与可见范围的起始位置重叠，则移除左侧并添加省略号
+                result.replace(
+                    0,
+                    fragment.start_byte_idx.saturating_add(fragment.grapheme.len()),
+                    "⋯",
+                );
+                break; // 剩余片段都不可见，结束处理
+            }
+
+            // 如果片段完全在可见范围内，则根据需要应用替换字符
+            if fragment_start >= range.start && fragment_end <= range.end {
+                if let Some(replacement) = fragment.replacement {
+                    let start_byte_idx = fragment.start_byte_idx;
+                    let end_byte_idx = start_byte_idx.saturating_add(fragment.grapheme.len());
+                    result.replace(start_byte_idx, end_byte_idx, &replacement.to_string());
                 }
             }
-            current_pos = fragment_end
         }
+
         result
     }
 
@@ -149,7 +213,7 @@ impl Line {
     }
 
     /// 计算宽度
-    pub fn width_until(&self, grapheme_index: GraphemeIdx) -> GraphemeIdx {
+    pub fn width_until(&self, grapheme_index: GraphemeIdx) -> Col {
         // 计算到指定图形单元为止的总宽度
         self.fragments
             .iter()
@@ -164,7 +228,7 @@ impl Line {
     }
 
     /// 获取行宽度
-    pub fn width(&self) -> GraphemeIdx {
+    pub fn width(&self) -> Col {
         self.width_until(self.grapheme_count())
     }
     
@@ -232,25 +296,14 @@ impl Line {
     }
 
     /// 将给定的字节索引转换为字素索引
-    fn byte_idx_to_grapheme_idx(&self, byte_idx: ByteIdx) -> GraphemeIdx {
-        debug_assert!(byte_idx <= self.string.len());
+    fn byte_idx_to_grapheme_idx(&self, byte_idx: ByteIdx) -> Option<GraphemeIdx> {
+        if byte_idx > self.string.len() {
+            return None;
+        }
         self.fragments
             .iter()
             // position 确保只返回在传递的闭包上返回 true 的第一个元素。
             .position(|fragment| fragment.start_byte_idx >= byte_idx)
-            .map_or_else(
-                || {
-                    #[cfg(debug_assertions)]
-                    {
-                        panic!("Fragment not found for byte index: {byte_idx:?}");
-                    }
-                    #[cfg(not(debug_assertions))]
-                    {
-                        0
-                    }
-                },
-                |grapheme_idx| grapheme_idx,
-            )
     }
 
     /// 将给定的字素索引转换为字节索引
@@ -294,13 +347,10 @@ impl Line {
         }
         // 将字素索引转换为字节索引，用于字符串切片操作
         let start_byte_idx = self.grapheme_idx_to_byte_idx(from_grapheme_idx);
-        // 获取从起始位置到字符串末尾的子字符串，并进行搜索
-        self.string
-            .get(start_byte_idx..)
-            // 进行搜索
-            .and_then(|substr| substr.find(query))
-            // 加上前面截断用的索引, 再将对应的字节索引转换为字素索引返回
-            .map(|byte_idx| self.byte_idx_to_grapheme_idx(byte_idx.saturating_add(start_byte_idx)))
+        // 获取从起始位置到字符串末尾的子字符串，并进行搜索，取结果中的第一个
+        self.find_all(query, start_byte_idx..self.string.len())
+            .first()
+            .map(|(_, grapheme_idx)| *grapheme_idx)
     }
 
     /// 向上搜索给定查询字符串的位置。
@@ -329,23 +379,47 @@ impl Line {
             self.grapheme_idx_to_byte_idx(from_grapheme_idx)
         };
         // 获取从字符串开头到结束字节索引的子字符串
+        // 查找所有匹配项并取最后一个，实现反向搜索
+        self.find_all(query, 0..end_byte_index)
+            .last()
+            .map(|(_, grapheme_idx)| *grapheme_idx)
+    }
+
+    /// 根据给定字节索引范围搜索所有匹配的内容，最后返回匹配项的字节索引和图形符号索引的集合。
+    ///
+    /// # 参数
+    /// - `query`: 要搜索的查询字符串。
+    /// - `range`: 搜索的字节索引范围。
+    ///
+    /// # 返回值
+    /// 返回一个包含匹配项的字节索引和图形符号索引的向量 (`Vec<(ByteIdx, GraphemeIdx)>`)。
+    fn find_all(&self, query: &str, range: Range<ByteIdx>) -> Vec<(ByteIdx, GraphemeIdx)> {
+        let end_byte_idx = range.end;
+        let start_byte_idx = range.start;
         self.string
-            .get(..end_byte_index)
-            // 查找所有匹配项并取最后一个，实现反向搜索
-            .and_then(|substr| substr.match_indices(query).last())
-            // 将找到的字节索引转换回图形符号索引并返回
-            .map(|(index, _)| self.byte_idx_to_grapheme_idx(index))
+            .get(start_byte_idx..end_byte_idx)
+            // 截取得到所需的 substring。如果未找到，则返回一个空 vector
+            .map_or_else(Vec::new, |substr| {
+                // 从范围截取的字符串中进行匹配比较
+                substr
+                    // 查找所有匹配项，返回迭代器 (相对起始字节索引, 匹配字符串)
+                    .match_indices(query)
+                    .filter_map(|(relative_start_idx, _)| {
+                        // 将相对字节索引转换为绝对字节索引
+                        let absolute_start_idx = relative_start_idx.saturating_add(start_byte_idx);
+
+                        // 尝试将绝对字节索引转换为图形符号索引
+                        self.byte_idx_to_grapheme_idx(absolute_start_idx)
+                            .map(|grapheme_idx| (absolute_start_idx, grapheme_idx))
+                    })
+                    .collect()
+            })
     }
 }
 
-impl fmt::Display for Line {
+impl Display for Line {
     fn fmt(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        let result: String = self
-            .fragments
-            .iter()
-            .map(|fragment| fragment.grapheme.clone())
-            .collect();
-        write!(formatter, "{result}")
+        write!(formatter, "{}", self.string)
     }
 }
 
